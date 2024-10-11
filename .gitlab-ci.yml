@@ -1,0 +1,10 @@
+image: alpine:latest
+
+sync-to-github:
+  script:
+    - |
+      echo "安装 curl, jq, bash 中"
+      apk add --no-cache git curl jq bash >/dev/null 2>&1
+      bash sync_to_github.sh
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" || $CI_PIPELINE_SOURCE == "web"
