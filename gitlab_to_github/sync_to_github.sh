@@ -2,12 +2,12 @@
 
 set -e
 
-# 从文件读取配置
-CONFIG=$(cat config.yml)
-GITHUB_PAT=$(awk '/github_pat/{print $NF}' <<< "$CONFIG")
-GITLAB_USERNAME=$(awk '/gitlab_username/{print $NF}' <<< "$CONFIG")
-GITHUB_REPO_PREFIX=$(awk '/github_repo_prefix/{print $NF}' <<< "$CONFIG")
-GITLAB_REPO_PREFIX=$(awk '/gitlab_repo_prefix/{print $NF}' <<< "$CONFIG")
+# 从文件读取配置，为防止用户没有去掉尖括号，故用 sed 处理强制去掉所有的 < > 符号
+CONFIG=$(sed "s/[<>]//g" config.yml)
+GITHUB_PAT=$(awk '$1 ~ "^github_pat" {sub(/[^:]*:[[:space:]]*/, ""); print}'  <<< "$CONFIG")
+GITLAB_USERNAME=$(awk '$1 ~ "^gitlab_username" {sub(/[^:]*:[[:space:]]*/, ""); print}'  <<< "$CONFIG")
+GITHUB_REPO_PREFIX=$(awk '$1 ~ "^github_repo_prefix" {sub(/[^:]*:[[:space:]]*/, ""); print}'  <<< "$CONFIG")
+GITLAB_REPO_PREFIX=$(awk '$1 ~ "^gitlab_repo_prefix" {sub(/[^:]*:[[:space:]]*/, ""); print}'  <<< "$CONFIG")
 GITLAB_REPO_SUFFIX=($(awk '{match($1, /^[0-9]+/); if (RSTART) print substr($1, RSTART, RLENGTH)}' <<< "$CONFIG"))
 
 # GitHub 仓库所有者

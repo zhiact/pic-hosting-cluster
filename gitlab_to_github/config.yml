@@ -1,0 +1,14 @@
+# 以下所有的 KV 填写格式要求: 1. 修改的地方需要把尖括号一并去掉；2. : 冒号后面有空格
+## GitHub 部分
+github_pat: <改为 GitHub PAT获取到的 Token>
+github_repo_prefix: <改为 GitHub 节点前缀，比如 pic1,pic2,pic3,pic4, 就只填 pic>
+
+## GitLab 部分
+gitlab_repo_prefix: <改为 GitLab 节点前缀，比如 pic1,pic2,pic3,pic4, 就只填 pic>
+gitlab_username: <改为 GitLab 用户名>
+gitlab_pats:
+  # 注意，下面只填节点数字序号，比如 pic1,pic2,pic3,pic4，就只填 1,2,3,4 即可
+  1: <改为 GitLab 节点1 api>
+  2: <改为 GitLab 节点2 api>
+  3: <改为 GitLab 节点3 api>
+  4: <改为 GitLab 节点4 api>
