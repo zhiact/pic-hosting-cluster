@@ -73,28 +73,31 @@ async function handleRequest(request) {
 }
 
 async function listProjects(repos, githubUsername, githubRepoPrefix, gitlabProjectIds, githubPat, gitlabPats) {
-  let result = 'GitHub and GitLab Nodes status:\n\n'
+  let result = 'GitHub and GitLab Nodes status:\n\n';
+
+  // 获取 GitHub 用户名
+  const actualGithubUsername = await getGitHubUsername(githubPat);
 
   // 检查 GitHub 项目
   for (const repo of repos) {
-    const githubStatus = await checkGitHubRepo(githubUsername, `${githubRepoPrefix}${repo}`, githubPat)
-    result += `GitHub: ${githubRepoPrefix}${repo} - ${githubStatus}\n`
+    const githubStatus = await checkGitHubRepo(githubUsername, `${githubRepoPrefix}${repo}`, githubPat);
+    result += `GitHub: ${githubRepoPrefix}${repo} - ${githubStatus} (Username: ${actualGithubUsername})\n`;
   }
 
   // 检查 GitLab 项目
   for (const repo of repos) {
-    const gitlabUrl = `https://gitlab.com/api/v4/projects/${gitlabProjectIds[repo]}`
-    const gitlabStatus = await checkGitLabProject(gitlabUrl, gitlabPats[repo])
-    result += `GitLab: Project ID ${gitlabProjectIds[repo]} - ${gitlabStatus}\n`
+    const gitlabUrl = `https://gitlab.com/api/v4/projects/${gitlabProjectIds[repo]}`;
+    const [gitlabStatus, gitlabUsername] = await checkGitLabProject(gitlabUrl, gitlabPats[repo]);
+    result += `GitLab: Project ID ${gitlabProjectIds[repo]} - ${gitlabStatus} (Username: ${gitlabUsername})\n`;
   }
 
   return new Response(result, {
     headers: { 'Content-Type': 'text/plain' }
-  })
+  });
 }
 
-async function checkGitHubRepo(owner, repo, pat) {
-  const url = `https://api.github.com/repos/${owner}/${repo}`
+async function getGitHubUsername(pat) {
+  const url = 'https://api.github.com/user';
   try {
     const response = await fetch(url, {
       headers: {
@@ -102,21 +105,45 @@ async function checkGitHubRepo(owner, repo, pat) {
         'Accept': 'application/vnd.github.v3+json',
         'User-Agent': 'Cloudflare Worker'
       }
-    })
-    
-    const data = await response.json()
+    });
     
     if (response.status === 200) {
-      return `working (${data.private ? 'private' : 'public'})`
-    } else if (response.status === 404) {
-      return 'not found'
+      const data = await response.json();
+      return data.login;
     } else {
-      console.error('GitHub API Error:', response.status, data.message)
-      return `error: ${response.status} - ${data.message}`
+      console.error('GitHub API Error:', response.status);
+      return 'Unknown';
     }
   } catch (error) {
-    console.error('GitHub request error:', error)
-    return `error: ${error.message}`
+    console.error('GitHub request error:', error);
+    return 'Error';
+  }
+}
+
+async function checkGitHubRepo(owner, repo, pat) {
+  const url = `https://api.github.com/repos/${owner}/${repo}`;
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `token ${pat}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Cloudflare Worker'
+      }
+    });
+    
+    const data = await response.json();
+    
+    if (response.status === 200) {
+      return `working (${data.private ? 'private' : 'public'})`;
+    } else if (response.status === 404) {
+      return 'not found';
+    } else {
+      console.error('GitHub API Error:', response.status, data.message);
+      return `error: ${response.status} - ${data.message}`;
+    }
+  } catch (error) {
+    console.error('GitHub request error:', error);
+    return `error: ${error.message}`;
   }
 }
 
@@ -126,16 +153,16 @@ async function checkGitLabProject(url, pat) {
       headers: {
         'PRIVATE-TOKEN': pat
       }
-    })
+    });
     if (response.status === 200) {
-      const data = await response.json()
-      return `working (${data.visibility})`
+      const data = await response.json();
+      return [`working (${data.visibility})`, data.owner.username];
     } else if (response.status === 404) {
-      return 'not found'
+      return ['not found', 'Unknown'];
     } else {
-      return 'disconnect'
+      return ['disconnect', 'Unknown'];
     }
   } catch (error) {
-    return 'disconnect'
+    return ['disconnect', 'Error'];
   }
 }
