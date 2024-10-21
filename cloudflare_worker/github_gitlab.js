@@ -2,102 +2,91 @@ addEventListener('fetch', event => {
     event.respondWith(handleRequest(event.request))
 })
 
+// 处理所有进入的 HTTP 请求
 async function handleRequest(request) {
-  const GITHUB_USERNAME = ''
-  const GITHUB_PAT = ''
-  const GITHUB_REPO_PREFIX = ''
-  const DIR = ''
+  const GITHUB_USERNAME = '' // 设置你的 GitHub 用户名
+  const GITHUB_PAT = ''  // 设置你的 GitHub PAT 令牌（Personal Access Token）
+  const GITHUB_REPO_PREFIX = ''        // 仓库前缀，不要跟数字，需要结合仓库数量 REPO_COUNT 使用，比如 pic
+  const REPO_COUNT = 10                   // 仓库数量，比如填10，结合前缀即为 pic1, pic2, ..., pic10
+  const BLACKLISTED_REPOS = []        // 定义黑名单的仓库序号，只填序号，中间用英文逗号隔开，比如[2,5]，不请求 pic2 和 pic5
+  const DIR = 'images'  // 仓库中的目录路径
 
-  // 用户设置的密码，如果未设置则使用 GitHub PAT 的值
+  // 设置检查密码，如果未设置则使用 GitHub PAT
   const CHECK_PASSWORD = '' || GITHUB_PAT
 
-  const GITLAB_PATS = {
-    1: 'repoAPI-1',
-    2: 'repoAPI-2',
-    3: 'repoAPI-3',
-  }
+  // 生成仓库列表，排除黑名单中的仓库
+  const REPOS = Array.from({ length: REPO_COUNT }, (_, i) => i + 1)
+                      .filter(index => !BLACKLISTED_REPOS.includes(index))
 
-  const GITLAB_PROJECT_IDS = {
-    1: 'repoID-1',
-    2: 'repoID-2',
-    3: 'repoID-3',
-  }
-
-  const REPOS = Object.keys(GITLAB_PATS).map(Number)
-
+  // 解析请求 URL
   const url = new URL(request.url)
-  const FILE = url.pathname.split('/').pop()
+  const FILE = url.pathname.split('/').pop()  // 获取文件名
 
-  // 使用 CHECK_PASSWORD 检查是否为新的测试路径
+  // 构建 GitHub raw 文件的 URL 列表
+  const urls = REPOS.map(repoNumber => `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO_PREFIX}${repoNumber}/main/${DIR}/${FILE}`)
+
+  // 检查是否为状态检查请求
   if (url.pathname === `/${CHECK_PASSWORD}`) {
-    return await listProjects(REPOS, GITHUB_USERNAME, GITHUB_REPO_PREFIX, GITLAB_PROJECT_IDS, GITHUB_PAT, GITLAB_PATS)
+    return await listProjects(REPOS, GITHUB_USERNAME, GITHUB_REPO_PREFIX, GITHUB_PAT)
   }
 
-  // 构建 GitHub 的 URL 列表
-  const githubUrls = REPOS.map(index => ({
-    url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${GITHUB_REPO_PREFIX}${index}/main/${DIR}/${FILE}`,
-    headers: {
-      'Authorization': `token ${GITHUB_PAT}`,
-      'Accept': 'application/vnd.github.v3.raw'
-    }
-  }))
-
-  // 构建 GitLab 的 URL 列表
-  const gitlabUrls = REPOS.map(index => ({
-    url: `https://gitlab.com/api/v4/projects/${GITLAB_PROJECT_IDS[index]}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}/raw?ref=main`,
-    headers: {
-      'PRIVATE-TOKEN': GITLAB_PATS[index]
-    }
-  }))
-
-  // 合并 GitHub 和 GitLab 的请求
-  const requests = [...githubUrls, ...gitlabUrls].map(({ url, headers }) => {
-    return fetch(new Request(url, {
+  // 创建并发请求任务
+  const requests = urls.map(githubUrl => {
+    const modifiedRequest = new Request(githubUrl, {
       method: request.method,
-      headers: headers
-    })).then(response => {
+      headers: {
+        'Authorization': `token ${GITHUB_PAT}`,
+        'Accept': 'application/vnd.github.v3.raw'
+      }
+    })
+    return fetch(modifiedRequest).then(response => {
       if (response.ok) return response;
-      throw new Error(`Not Found in ${url}`);
+      throw new Error(`Not Found in ${githubUrl}`);
     })
   })
 
   try {
+    // 等待第一个成功的请求返回结果
     const response = await Promise.any(requests)
+    // 创建新的响应，移除 Authorization 头部
     const newResponse = new Response(response.body, response)
     newResponse.headers.delete('Authorization')
-    newResponse.headers.delete('PRIVATE-TOKEN')
     return newResponse
   } catch (error) {
-    return new Response(`404: Cannot find the ${FILE} in the GitHub and Gitlab picture cluster.`, { status: 404 })
+    // 如果所有请求都失败，返回 404 错误
+    return new Response(`404: Could not find ${FILE} in the image cluster.`, { 
+      status: 404,
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+    })
   }
 }
 
-async function listProjects(repos, githubUsername, githubRepoPrefix, gitlabProjectIds, githubPat, gitlabPats) {
-  let result = 'GitHub and GitLab Nodes status:\n\n';
+// 列出所有项目状态
+async function listProjects(repos, githubUsername, githubRepoPrefix, githubPat) {
+  // 获取实际的 GitHub 用户名
+  const actualUsername = await getGitHubUsername(githubPat)
 
-  // 获取 GitHub 用户名
-  const actualGithubUsername = await getGitHubUsername(githubPat);
+  // 并发检查每个仓库的状态
+  const statusChecks = repos.map(async repoNumber => {
+    const githubStatus = await checkGitHubRepo(githubUsername, `${githubRepoPrefix}${repoNumber}`, githubPat)
+    return `GitHub: ${githubRepoPrefix}${repoNumber} - ${githubStatus} (Username: ${actualUsername})`
+  })
 
-  // 检查 GitHub 项目
-  for (const repo of repos) {
-    const githubStatus = await checkGitHubRepo(githubUsername, `${githubRepoPrefix}${repo}`, githubPat);
-    result += `GitHub: ${githubRepoPrefix}${repo} - ${githubStatus} (Username: ${actualGithubUsername})\n`;
-  }
-
-  // 检查 GitLab 项目
-  for (const repo of repos) {
-    const gitlabUrl = `https://gitlab.com/api/v4/projects/${gitlabProjectIds[repo]}`;
-    const [gitlabStatus, gitlabUsername] = await checkGitLabProject(gitlabUrl, gitlabPats[repo]);
-    result += `GitLab: Project ID ${gitlabProjectIds[repo]} - ${gitlabStatus} (Username: ${gitlabUsername})\n`;
-  }
+  // 等待所有状态检查完成
+  const results = await Promise.all(statusChecks)
+  const result = 'GitHub Repositories:\n\n' + results.join('\n')
 
   return new Response(result, {
-    headers: { 'Content-Type': 'text/plain' }
-  });
+    headers: { 
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Content-Language': 'en-US'
+    }
+  })
 }
 
+// 获取 GitHub 用户名
 async function getGitHubUsername(pat) {
-  const url = 'https://api.github.com/user';
+  const url = 'https://api.github.com/user'
   try {
     const response = await fetch(url, {
       headers: {
@@ -105,23 +94,24 @@ async function getGitHubUsername(pat) {
         'Accept': 'application/vnd.github.v3+json',
         'User-Agent': 'Cloudflare Worker'
       }
-    });
+    })
     
     if (response.status === 200) {
-      const data = await response.json();
-      return data.login;
+      const data = await response.json()
+      return data.login
     } else {
-      console.error('GitHub API Error:', response.status);
-      return 'Unknown';
+      console.error('GitHub API error:', response.status)
+      return 'Unknown'
     }
   } catch (error) {
-    console.error('GitHub request error:', error);
-    return 'Error';
+    console.error('GitHub request error:', error)
+    return 'Error'
   }
 }
 
+// 检查 GitHub 仓库状态
 async function checkGitHubRepo(owner, repo, pat) {
-  const url = `https://api.github.com/repos/${owner}/${repo}`;
+  const url = `https://api.github.com/repos/${owner}/${repo}`
   try {
     const response = await fetch(url, {
       headers: {
@@ -129,40 +119,20 @@ async function checkGitHubRepo(owner, repo, pat) {
         'Accept': 'application/vnd.github.v3+json',
         'User-Agent': 'Cloudflare Worker'
       }
-    });
+    })
     
-    const data = await response.json();
+    const data = await response.json()
     
     if (response.status === 200) {
-      return `working (${data.private ? 'private' : 'public'})`;
+      return `Working normally (${data.private ? 'Private' : 'Public'})`
     } else if (response.status === 404) {
-      return 'not found';
+      return 'Not found'
     } else {
-      console.error('GitHub API Error:', response.status, data.message);
-      return `error: ${response.status} - ${data.message}`;
+      console.error('GitHub API error:', response.status, data.message)
+      return `Error: ${response.status} - ${data.message}`
     }
   } catch (error) {
-    console.error('GitHub request error:', error);
-    return `error: ${error.message}`;
-  }
-}
-
-async function checkGitLabProject(url, pat) {
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'PRIVATE-TOKEN': pat
-      }
-    });
-    if (response.status === 200) {
-      const data = await response.json();
-      return [`working (${data.visibility})`, data.owner.username];
-    } else if (response.status === 404) {
-      return ['not found', 'Unknown'];
-    } else {
-      return ['disconnect', 'Unknown'];
-    }
-  } catch (error) {
-    return ['disconnect', 'Error'];
+    console.error('GitHub request error:', error)
+    return `Error: ${error.message}`
   }
 }
