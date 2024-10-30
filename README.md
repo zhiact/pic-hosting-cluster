@@ -26,3 +26,11 @@
 - **各种不正常状态**
 
 <img width="442" alt="image-2" src="https://github.com/user-attachments/assets/4a74464f-366f-4ede-9b3a-5ed2fd2ff65d">
+
+## 检测文件信息
+- **从 GitHub 获取** `https://<自定义域名>/<文件名>?from=where`
+
+## 指定文件获取平台
+- **从 GitHub 获取** `https://<自定义域名>/<文件名>?from=github`
+
+- **从 GitLab 获取** `https://<自定义域名>/<文件名>?from=gitlab`
