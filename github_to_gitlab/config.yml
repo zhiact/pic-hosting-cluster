@@ -12,3 +12,11 @@ gitlab_pats:
   2: <改为 GitLab 节点2 api>
   3: <改为 GitLab 节点3 api>
   4: <改为 GitLab 节点4 api>
+
+## CloudFlare R2 部分
+r2_account_id: 
+r2_access_key_id: 
+r2_secret_access_key: 
+r2_bucket: 
+strategy: size    # 可选 [size (默认) | quantity | 指定节点]; size: 选择容量最少的仓库来存储文件; quantity: 选择文件最少的仓库来存储文件; 指定节点: 比如  pic1 或者 pic2
+delete: true    # 可选 [true (默认) | false]，已复制到 GitHub 的文件，是否从 R2 删除 

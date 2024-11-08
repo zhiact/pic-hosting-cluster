@@ -1,4 +1,4 @@
-name: Sync Repositories
+name: Sync files from R2
 
 on:
   schedule:
@@ -6,12 +6,14 @@ on:
   workflow_dispatch:  # 允许手动触发
 
 jobs:
-  GitHub_To_GitLab :
+  R2_To_GitHub :
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v4.1.1
 
-    - name: Clone Repo to GitLab
+    - name: Sync files to GitHub
       continue-on-error: true
-      uses: fscarmen2/github_to_gitlab@v1.0.0
+      uses: fscarmen2/r2_to_github@v1.0.0
+      with:
+        delete_from_r2: true
