@@ -21,6 +21,25 @@ const GITLAB_CONFIGS = [
     bucket: '', // R2 桶名
   };
 
+  // R2 存储配置
+  const R2_CONFIGS = [
+    {
+      name: '',  // 帐户1 ID
+      accountId: '',  // 帐户1 访问密钥 ID
+      accessKeyId: '',  // 帐户1 机密访问密钥
+      secretAccessKey: '',  // 帐户1 机密访问密钥
+      bucket: '' // 帐户1 R2 存储桶名称
+    },
+    {
+      name: '',  // 帐户2 ID
+      accountId: '',  // 帐户2 访问密钥 ID
+      accessKeyId: '',  // 帐户2 机密访问密钥
+      secretAccessKey: '',  // 帐户2 机密访问密钥
+      bucket: '' // 帐户2 R2 存储桶名称
+    },
+    // 可以添加更多 R2 配置
+  ];
+
   // 其他全局配置
   const DIR = '';  // 存储目录
   const CHECK_PASSWORD = '' || GITHUB_PAT;  // 状态检查密码，默认为 GitHub PAT 的值
@@ -35,10 +54,10 @@ addEventListener('fetch', event => {
 // AWS SDK 签名相关函数开始 =================================
 
 // 获取签名URL
-async function getSignedUrl(method, path) {
+async function getSignedUrl(r2Config, method, path) {
   const region = 'auto';
   const service = 's3';
-  const host = `${R2_CONFIG.accountId}.r2.cloudflarestorage.com`;
+  const host = `${r2Config.accountId}.r2.cloudflarestorage.com`;
   const datetime = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
   const date = datetime.substr(0, 8);
 
@@ -55,7 +74,6 @@ async function getSignedUrl(method, path) {
     'UNSIGNED-PAYLOAD'
   ].join('\n');
 
-  // 构建签名字符串
   const stringToSign = [
     'AWS4-HMAC-SHA256',
     datetime,
@@ -64,7 +82,7 @@ async function getSignedUrl(method, path) {
   ].join('\n');
 
   const signature = await getSignature(
-    R2_CONFIG.secretAccessKey,
+    r2Config.secretAccessKey,
     date,
     region,
     service,
@@ -73,7 +91,7 @@ async function getSignedUrl(method, path) {
 
   // 构建授权头
   const authorization = [
-    `AWS4-HMAC-SHA256 Credential=${R2_CONFIG.accessKeyId}/${date}/${region}/${service}/aws4_request`,
+    `AWS4-HMAC-SHA256 Credential=${r2Config.accessKeyId}/${date}/${region}/${service}/aws4_request`,
     `SignedHeaders=host;x-amz-content-sha256;x-amz-date`,
     `Signature=${signature}`
   ].join(', ');
@@ -127,7 +145,7 @@ async function getSignature(secret, date, region, service, stringToSign) {
   const kService = await hmacSha256(kRegion, service);
   const kSigning = await hmacSha256(kService, 'aws4_request');
   const signature = await hmacSha256(kSigning, stringToSign);
-
+  
   return Array.from(new Uint8Array(signature))
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
@@ -135,11 +153,11 @@ async function getSignature(secret, date, region, service, stringToSign) {
 
 // 处理所有进入的 HTTP 请求
 async function handleRequest(request) {
-  const isValidGithubRepos = Array.isArray(GITHUB_REPOS) &&
-    GITHUB_REPOS.length > 0 &&
+  const isValidGithubRepos = Array.isArray(GITHUB_REPOS) && 
+    GITHUB_REPOS.length > 0 && 
     GITHUB_REPOS.some(repo => repo.trim() !== '');
 
-  const githubRepos = isValidGithubRepos
+  const githubRepos = isValidGithubRepos 
     ? GITHUB_REPOS.filter(repo => repo.trim() !== '')
     : GITLAB_CONFIGS.map(config => config.name);
 
@@ -156,16 +174,18 @@ async function handleRequest(request) {
   // 根据不同的访问方式构建请求
   let requests = [];
 
-  // 构建 R2 请求
-  const r2Request = async () => {
-    const r2Path = `${R2_CONFIG.bucket}/${DIR}/${FILE}`;
-    const signedRequest = await getSignedUrl('GET', r2Path);
-    return {
-      url: signedRequest.url,
-      headers: signedRequest.headers,
-      source: 'r2',
-      repo: R2_CONFIG.bucket
-    };
+  // R2 请求生成函数
+  const generateR2Requests = async () => {
+    return Promise.all(R2_CONFIGS.map(async (r2Config) => {
+      const r2Path = `${r2Config.bucket}/${DIR}/${FILE}`;
+      const signedRequest = await getSignedUrl(r2Config, 'GET', r2Path);
+      return {
+        url: signedRequest.url,
+        headers: signedRequest.headers,
+        source: 'r2',
+        repo: `${r2Config.name} (${r2Config.bucket})`
+      };
+    }));
   };
 
   if (from === 'where') {
@@ -194,7 +214,7 @@ async function handleRequest(request) {
       headers: {
         'PRIVATE-TOKEN': config.token
       },
-      source: 'gitlab',
+      source: 'gitlab', 
       repo: config.name,
       processResponse: async (response) => {
         if (!response.ok) throw new Error('Not found');
@@ -207,9 +227,9 @@ async function handleRequest(request) {
       }
     }));
 
-    // R2 where 请求
-    const r2WhereRequest = {
-      ...(await r2Request()),
+    const r2Requests = await generateR2Requests();
+    const r2WhereRequests = r2Requests.map(request => ({
+      ...request,
       processResponse: async (response) => {
         if (!response.ok) throw new Error('Not found');
         const size = response.headers.get('content-length');
@@ -218,9 +238,10 @@ async function handleRequest(request) {
           exists: true
         };
       }
-    };
+    }));
 
-    requests = [...githubRequests, ...gitlabRequests, r2WhereRequest];
+    requests = [...githubRequests, ...gitlabRequests, ...r2WhereRequests];
+
   } else {
     // 获取文件内容模式
     if (from === 'github') {
@@ -243,28 +264,31 @@ async function handleRequest(request) {
         repo: config.name
       }));
     } else if (from === 'r2') {
-      requests = [await r2Request()];
+      requests = await generateR2Requests();
     } else {
-      requests = [
-        ...githubRepos.map(repo => ({
-          url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${repo}/main/${DIR}/${FILE}`,
-          headers: {
-            'Authorization': `token ${GITHUB_PAT}`,
-            'User-Agent': 'Cloudflare Worker'
-          },
-          source: 'github',
-          repo: repo
-        })),
-        ...GITLAB_CONFIGS.map(config => ({
-          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}/raw?ref=main`,
-          headers: {
-            'PRIVATE-TOKEN': config.token
-          },
-          source: 'gitlab',
-          repo: config.name
-        })),
-        await r2Request()
-      ];
+      // 如果没有指定来源，则从所有源获取
+      const githubRequests = githubRepos.map(repo => ({
+        url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${repo}/main/${DIR}/${FILE}`,
+        headers: {
+          'Authorization': `token ${GITHUB_PAT}`,
+          'User-Agent': 'Cloudflare Worker'
+        },
+        source: 'github',
+        repo: repo
+      }));
+
+      const gitlabRequests = GITLAB_CONFIGS.map(config => ({
+        url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}/raw?ref=main`,
+        headers: {
+          'PRIVATE-TOKEN': config.token
+        },
+        source: 'gitlab',
+        repo: config.name
+      }));
+
+      const r2Requests = await generateR2Requests();
+      
+      requests = [...githubRequests, ...gitlabRequests, ...r2Requests];
     }
   }
 
@@ -281,7 +305,7 @@ async function handleRequest(request) {
           const endTime = Date.now();
           const duration = endTime - startTime;
 
-          const formattedSize = result.size > 1024 * 1024
+          const formattedSize = result.size > 1024 * 1024 
             ? `${(result.size / (1024 * 1024)).toFixed(2)} MB`
             : `${(result.size / 1024).toFixed(2)} kB`;
 
@@ -313,7 +337,7 @@ async function handleRequest(request) {
 
     // 使用 Promise.any 获取第一个成功的响应
     const result = await Promise.any(fetchPromises);
-
+    
     if (from === 'where') {
       return new Response(JSON.stringify(result, null, 2), {
         headers: {
@@ -333,7 +357,7 @@ async function handleRequest(request) {
   } catch (error) {
     const sourceText = from === 'where'
       ? 'in any repository'
-      : from
+      : from 
         ? `from ${from}`
         : 'in the GitHub, GitLab and R2 storage';
     return new Response(`404: Cannot find the ${FILE} ${sourceText}.`, { status: 404 });
@@ -341,36 +365,48 @@ async function handleRequest(request) {
 }
 
 async function listProjects(gitlabConfigs, githubRepos, githubUsername, githubPat) {
-  let result = 'GitHub and GitLab Nodes status:\n\n';
+  let result = 'GitHub, GitLab and R2 Storage status:\n\n';
 
   try {
     // 并发执行所有检查
     const [username, ...allChecks] = await Promise.all([
       getGitHubUsername(githubPat),
-      ...githubRepos.map(repo =>
+      ...githubRepos.map(repo => 
         checkGitHubRepo(githubUsername, repo, githubPat)
       ),
-      ...gitlabConfigs.map(config =>
+      ...gitlabConfigs.map(config => 
         checkGitLabProject(config.id, config.token)
+      ),
+      ...R2_CONFIGS.map(config =>
+        checkR2Storage(config)
       )
     ]);
 
-    // 处理 GitHub 检查结果
-    const githubResults = allChecks.slice(0, githubRepos.length);
-    const gitlabResults = allChecks.slice(githubRepos.length);
+    // 计算各类检查结果的数量
+    const githubCount = githubRepos.length;
+    const gitlabCount = gitlabConfigs.length;
+    
+    // 分割检查结果
+    const githubResults = allChecks.slice(0, githubCount);
+    const gitlabResults = allChecks.slice(githubCount, githubCount + gitlabCount);
+    const r2Results = allChecks.slice(githubCount + gitlabCount);
 
-    // 添加 GitHub 结果到输出
+    // 添加 GitHub 结果
     githubRepos.forEach((repo, index) => {
       const [status, fileCount, totalSize] = githubResults[index];
       const formattedSize = formatSize(totalSize);
       result += `GitHub: ${repo} - ${status} (Username: ${username}, Files: ${fileCount}, Size: ${formattedSize})\n`;
     });
 
-    // 添加 GitLab 结果到输出
+    // 添加 GitLab 结果
     gitlabConfigs.forEach((config, index) => {
-      const [status, username, fileCount, totalSize] = gitlabResults[index];
-      const formattedSize = formatSize(totalSize);
+      const [status, username, fileCount] = gitlabResults[index];
       result += `GitLab: Project ID ${config.id} - ${status} (Username: ${username}, Files: ${fileCount})\n`;
+    });
+
+    // 添加 R2 结果
+    r2Results.forEach(([status, name, bucket]) => {
+      result += `R2 Storage: ${name} - ${status} (Bucket: ${bucket})\n`;
     });
 
   } catch (error) {
@@ -404,7 +440,7 @@ async function getGitHubUsername(pat) {
         'User-Agent': 'Cloudflare Worker'  // 用户代理
       }
     });
-
+    
     // 如果响应状态为 200，表示成功
     if (response.status === 200) {
       const data = await response.json();  // 解析 JSON 数据
@@ -423,7 +459,7 @@ async function getGitHubUsername(pat) {
 async function checkGitHubRepo(owner, repo, pat) {
   const repoUrl = `https://api.github.com/repos/${owner}/${repo}`;  // 仓库信息 API 地址
   const contentsUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/main?recursive=1`;  // 获取仓库文件树的 API 地址
-
+  
   const headers = {
     'Authorization': `token ${pat}`,  // 使用个人访问令牌进行授权
     'Accept': 'application/vnd.github.v3+json',  // 指定接受的响应格式
@@ -438,7 +474,7 @@ async function checkGitHubRepo(owner, repo, pat) {
     ]);
 
     const repoData = await repoResponse.json();  // 解析仓库信息
-
+    
     // 检查仓库信息请求是否成功
     if (repoResponse.status !== 200) {
       throw new Error(`Repository error: ${repoData.message}`);  // 抛出错误
@@ -450,7 +486,7 @@ async function checkGitHubRepo(owner, repo, pat) {
     }
 
     const treeData = await treeResponse.json();  // 解析文件树数据
-
+    
     // 使用 filter 和 reduce 处理所有文件
     const fileStats = treeData.tree
       .filter(item => {
@@ -509,7 +545,7 @@ async function checkGitLabProject(projectId, pat) {
       // 检查文件树请求是否成功
       if (filesResponse.status === 200) {
         const filesData = await filesResponse.json();  // 解析文件数据
-
+        
         // 过滤路径为 images/ 开头的文件
         const imageFiles = filesData.filter(file => file.type === 'blob' && file.path.startsWith('images/'));
 
@@ -525,6 +561,30 @@ async function checkGitLabProject(projectId, pat) {
     }
   } catch (error) {
     return ['disconnect', 'Error', 0];  // 返回断开连接状态和错误信息
+  }
+}
+
+// 检查 R2 存储状态
+async function checkR2Storage(r2Config) {
+  try {
+    const testPath = `${r2Config.bucket}/${DIR}/test-access`;
+    const signedRequest = await getSignedUrl(r2Config, 'HEAD', testPath);
+    
+    const response = await fetch(signedRequest.url, {
+      method: 'HEAD',
+      headers: signedRequest.headers
+    });
+
+    // 即使文件不存在，只要能访问到存储桶就认为是正常的
+    const status = response.status === 404 ? 'working' : 'error';
+    
+    return [
+      status,
+      r2Config.name,
+      r2Config.bucket
+    ];
+  } catch (error) {
+    return ['error', r2Config.name, 'connection failed'];
   }
 }
 

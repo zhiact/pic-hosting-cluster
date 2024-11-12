@@ -1,6 +1,6 @@
 # GitHub 和 GitLab 图床集群同步库
 
-- **两个方案的配置文件都是 `config.yml`，只需要根据实际修改**
+- **方案的配置文件都是 `config.yml`，只需要根据实际修改**
 
 ## GitHub --→ GitLab 目录下2个文件，放到 GitHub 库: 
 - **配置文件**: `config.yml`
@@ -10,6 +10,10 @@
 - **配置文件**: `config.yml`
 - **同步脚本**: `sync_to_github.sh`
 - **CI/CD 脚本**: `.gitlab-ci.yml`
+
+## GitLab --→ GitHub 目录下2个文件，放到 GitHub 库: 
+- **配置文件**: `config.yml`
+- **同步脚本**: `r2_to_github.sh`
 
 ## Cloudflare worker 目录下4个文件，复制代码到 worker 处：
 - **只使用 GitHub**: `github_only.js`
