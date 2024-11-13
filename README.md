@@ -1,4 +1,4 @@
-# GitHub 和 GitLab 图床集群同步库
+# R2，GitHub 和 GitLab 分布式存储集群
 
 - **方案的配置文件都是 `config.yml`，只需要根据实际修改**
 
@@ -11,7 +11,7 @@
 - **同步脚本**: `sync_to_github.sh`
 - **CI/CD 脚本**: `.gitlab-ci.yml`
 
-## GitLab --→ GitHub 目录下2个文件，放到 GitHub 库: 
+## R2 --→ GitHub 目录下2个文件，放到 GitHub 库: 
 - **配置文件**: `config.yml`
 - **同步脚本**: `r2_to_github.sh`
 
@@ -24,13 +24,7 @@
 
 ## 检测节点状态 `https://<自定义域名>/<GitHub PAT>`
 
-- **正常状态**
-
-<img width="442" alt="image-2" src="https://github.com/user-attachments/assets/15a0cb81-8a53-4d3b-9072-55ba4ed82788">
-
-- **各种不正常状态**
-
-<img width="442" alt="image-2" src="https://github.com/user-attachments/assets/4a74464f-366f-4ede-9b3a-5ed2fd2ff65d">
+<img width="695" alt="image" src="https://github.com/user-attachments/assets/3fa0bf8d-4ec7-420a-8592-ddc97cc4a71b">
 
 ## 检测文件信息
 - **从 GitHub 获取** `https://<自定义域名>/<文件名>?from=where`
