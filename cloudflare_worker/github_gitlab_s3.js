@@ -196,116 +196,14 @@ export default {
       return response;
     }
 
-  const startTime = Date.now();
+    const startTime = Date.now();
 
-  // 根据不同的访问方式构建请求
-  let requests = [];
+    // 根据不同的访问方式构建请求
+    let requests = [];
 
-  // 在生成请求时需要合并 R2 和 B2 的请求
-  const generateStorageRequests = async () => {
-    const r2Requests = await Promise.all(R2_CONFIGS.map(async (r2Config) => {
-      const r2Path = `${r2Config.bucket}/${DIR}/${FILE}`;
-      const signedRequest = await getSignedUrl(r2Config, 'GET', r2Path);
-      return {
-        url: signedRequest.url,
-        headers: signedRequest.headers,
-        source: 'r2',
-        repo: `${r2Config.name} (${r2Config.bucket})`
-      };
-    }));
-
-    const b2Requests = await Promise.all(B2_CONFIGS.map(async (b2Config) => {
-      const b2Path = `${b2Config.bucket}/${DIR}/${FILE}`;
-      const signedRequest = await getSignedUrl(b2Config, 'GET', b2Path);
-      return {
-        url: signedRequest.url,
-        headers: signedRequest.headers,
-        source: 'b2',
-        repo: `${b2Config.name} (${b2Config.bucket})`
-      };
-    }));
-
-    return [...r2Requests, ...b2Requests];
-  };
-
-  if (from === 'where') {
-    // 获取文件信息模式
-    const githubRequests = githubRepos.map(repo => ({
-      url: `https://api.github.com/repos/${GITHUB_USERNAME}/${repo}/contents/${DIR}/${FILE}`,
-      headers: {
-        'Authorization': `token ${GITHUB_PAT}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'Cloudflare Worker'
-      },
-      source: 'github',
-      repo: repo,
-      processResponse: async (response) => {
-        if (!response.ok) throw new Error('Not found');
-        const data = await response.json();
-        return {
-          size: data.size,
-          exists: true
-        };
-      }
-    }));
-
-    const gitlabRequests = GITLAB_CONFIGS.map(config => ({
-      url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}?ref=main`,
-      headers: {
-        'PRIVATE-TOKEN': config.token
-      },
-      source: 'gitlab',
-      repo: config.name,
-      processResponse: async (response) => {
-        if (!response.ok) throw new Error('Not found');
-        const data = await response.json();
-        const size = atob(data.content).length;
-        return {
-          size: size,
-          exists: true
-        };
-      }
-    }));
-
-    const r2Requests = await generateStorageRequests();
-    const r2WhereRequests = r2Requests.map(request => ({
-      ...request,
-      processResponse: async (response) => {
-        if (!response.ok) throw new Error('Not found');
-        const size = response.headers.get('content-length');
-        return {
-          size: parseInt(size),
-          exists: true
-        };
-      }
-    }));
-
-    requests = [...githubRequests, ...gitlabRequests, ...r2WhereRequests];
-
-  } else {
-    // 获取文件内容模式
-    if (from === 'github') {
-      requests = githubRepos.map(repo => ({
-        url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${repo}/main/${DIR}/${FILE}`,
-        headers: {
-          'Authorization': `token ${GITHUB_PAT}`,
-          'User-Agent': 'Cloudflare Worker'
-        },
-        source: 'github',
-        repo: repo
-      }));
-    } else if (from === 'gitlab') {
-      requests = GITLAB_CONFIGS.map(config => ({
-        url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}/raw?ref=main`,
-        headers: {
-          'PRIVATE-TOKEN': config.token
-        },
-        source: 'gitlab',
-        repo: config.name
-      }));
-    } else if (from === 'r2') {
-      // 只从 R2 存储获取
-      requests = await Promise.all(R2_CONFIGS.map(async (r2Config) => {
+    // 在生成请求时需要合并 R2 和 B2 的请求
+    const generateStorageRequests = async () => {
+      const r2Requests = await Promise.all(R2_CONFIGS.map(async (r2Config) => {
         const r2Path = `${r2Config.bucket}/${DIR}/${FILE}`;
         const signedRequest = await getSignedUrl(r2Config, 'GET', r2Path);
         return {
@@ -315,9 +213,8 @@ export default {
           repo: `${r2Config.name} (${r2Config.bucket})`
         };
       }));
-    } else if (from === 'b2') {
-      // 只从 B2 存储获取
-      requests = await Promise.all(B2_CONFIGS.map(async (b2Config) => {
+
+      const b2Requests = await Promise.all(B2_CONFIGS.map(async (b2Config) => {
         const b2Path = `${b2Config.bucket}/${DIR}/${FILE}`;
         const signedRequest = await getSignedUrl(b2Config, 'GET', b2Path);
         return {
@@ -327,123 +224,237 @@ export default {
           repo: `${b2Config.name} (${b2Config.bucket})`
         };
       }));
-    } else {
-      // 如果没有指定来源，则从所有源获取
+
+      return [...r2Requests, ...b2Requests];
+    };
+
+    if (from === 'where') {
+      // 获取文件信息模式
       const githubRequests = githubRepos.map(repo => ({
-        url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${repo}/main/${DIR}/${FILE}`,
+        url: `https://api.github.com/repos/${GITHUB_USERNAME}/${repo}/contents/${DIR}/${FILE}`,
         headers: {
           'Authorization': `token ${GITHUB_PAT}`,
+          'Accept': 'application/vnd.github.v3+json',
           'User-Agent': 'Cloudflare Worker'
         },
         source: 'github',
-        repo: repo
+        repo: repo,
+        processResponse: async (response) => {
+          if (!response.ok) throw new Error('Not found');
+          const data = await response.json();
+          return {
+            size: data.size,
+            exists: true
+          };
+        }
       }));
 
       const gitlabRequests = GITLAB_CONFIGS.map(config => ({
-        url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}/raw?ref=main`,
+        url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}?ref=main`,
         headers: {
           'PRIVATE-TOKEN': config.token
         },
         source: 'gitlab',
-        repo: config.name
+        repo: config.name,
+        processResponse: async (response) => {
+          if (!response.ok) throw new Error('Not found');
+          const data = await response.json();
+          const size = atob(data.content).length;
+          return {
+            size: size,
+            exists: true
+          };
+        }
       }));
 
       const r2Requests = await generateStorageRequests();
-
-      requests = [...githubRequests, ...gitlabRequests, ...r2Requests];
-    }
-  }
-
-  // 发送请求并处理响应
-  const fetchPromises = requests.map(request => {
-    const { url, headers, source, repo, processResponse } = request;
-
-    return fetch(new Request(url, {
-      method: 'GET',
-      headers: headers
-    })).then(async response => {
-      if (from === 'where' && typeof processResponse === 'function') {
-        // 使用 `processResponse` 处理 where 查询逻辑
-        try {
-          const result = await processResponse(response);
-          const endTime = Date.now();
-          const duration = endTime - startTime;
-
-          const formattedSize = result.size > 1024 * 1024
-            ? `${(result.size / (1024 * 1024)).toFixed(2)} MB`
-            : `${(result.size / 1024).toFixed(2)} kB`;
-
+      const r2WhereRequests = r2Requests.map(request => ({
+        ...request,
+        processResponse: async (response) => {
+          if (!response.ok) throw new Error('Not found');
+          const size = response.headers.get('content-length');
           return {
-            fileName: FILE,
-            size: formattedSize,
-            source: `${source} (${repo})`,
-            duration: `${duration}ms`
+            size: parseInt(size),
+            exists: true
           };
-        } catch (error) {
-          throw new Error(`Not found in ${source} (${repo})`);
         }
-      } else {
-        // 对于内容获取，直接返回响应
-        if (!response.ok) {
-          throw new Error(`Not found in ${source} (${repo})`);
-        }
-        return response;
-      }
-    }).catch(error => {
-      throw new Error(`Error in ${source} (${repo}): ${error.message}`);
-    });
-  });
+      }));
 
-  try {
-    if (requests.length === 0) {
-      throw new Error('No valid source specified');
-    }
+      requests = [...githubRequests, ...gitlabRequests, ...r2WhereRequests];
 
-    const result = await Promise.any(fetchPromises);
-
-    let response;
-    if (from === 'where') {
-      response = new Response(JSON.stringify(result, null, 2), {
-        headers: {
-          'Content-Type': 'application/json',
-          'Access-Control-Allow-Origin': '*'
-        }
-      });
-    } else if (result instanceof Response) {
-      response = new Response(result.body, result);
-      // 清除敏感header
-      response.headers.delete('Authorization');
-      response.headers.delete('PRIVATE-TOKEN');
-      response.headers.delete('x-amz-content-sha256');
-      response.headers.delete('x-amz-date');
     } else {
-      throw new Error("Unexpected result type");
+      // 获取文件内容模式
+      if (from === 'github') {
+        requests = githubRepos.map(repo => ({
+          url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${repo}/main/${DIR}/${FILE}`,
+          headers: {
+            'Authorization': `token ${GITHUB_PAT}`,
+            'User-Agent': 'Cloudflare Worker'
+          },
+          source: 'github',
+          repo: repo
+        }));
+      } else if (from === 'gitlab') {
+        requests = GITLAB_CONFIGS.map(config => ({
+          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}/raw?ref=main`,
+          headers: {
+            'PRIVATE-TOKEN': config.token
+          },
+          source: 'gitlab',
+          repo: config.name
+        }));
+      } else if (from === 'r2') {
+        // 只从 R2 存储获取
+        requests = await Promise.all(R2_CONFIGS.map(async (r2Config) => {
+          const r2Path = `${r2Config.bucket}/${DIR}/${FILE}`;
+          const signedRequest = await getSignedUrl(r2Config, 'GET', r2Path);
+          return {
+            url: signedRequest.url,
+            headers: signedRequest.headers,
+            source: 'r2',
+            repo: `${r2Config.name} (${r2Config.bucket})`
+          };
+        }));
+      } else if (from === 'b2') {
+        // 只从 B2 存储获取
+        requests = await Promise.all(B2_CONFIGS.map(async (b2Config) => {
+          const b2Path = `${b2Config.bucket}/${DIR}/${FILE}`;
+          const signedRequest = await getSignedUrl(b2Config, 'GET', b2Path);
+          return {
+            url: signedRequest.url,
+            headers: signedRequest.headers,
+            source: 'b2',
+            repo: `${b2Config.name} (${b2Config.bucket})`
+          };
+        }));
+      } else {
+        // 如果没有指定来源，则从所有源获取
+        const githubRequests = githubRepos.map(repo => ({
+          url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${repo}/main/${DIR}/${FILE}`,
+          headers: {
+            'Authorization': `token ${GITHUB_PAT}`,
+            'User-Agent': 'Cloudflare Worker'
+          },
+          source: 'github',
+          repo: repo
+        }));
+
+        const gitlabRequests = GITLAB_CONFIGS.map(config => ({
+          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}/raw?ref=main`,
+          headers: {
+            'PRIVATE-TOKEN': config.token
+          },
+          source: 'gitlab',
+          repo: config.name
+        }));
+
+        const r2Requests = await generateStorageRequests();
+
+        requests = [...githubRequests, ...gitlabRequests, ...r2Requests];
+      }
     }
 
-    // 添加缓存控制头
-    response.headers.append("Cache-Control", "s-maxage=31556952");
+    // 发送请求并处理响应
+    const fetchPromises = requests.map(request => {
+      const { url, headers, source, repo, processResponse } = request;
 
-    // 异步缓存响应
-    ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      return fetch(new Request(url, {
+        method: 'GET',
+        headers: headers
+      })).then(async response => {
+        if (from === 'where' && typeof processResponse === 'function') {
+          // 使用 `processResponse` 处理 where 查询逻辑
+          try {
+            const result = await processResponse(response);
+            const endTime = Date.now();
+            const duration = endTime - startTime;
 
-    return response;
+            const formattedSize = result.size > 1024 * 1024
+              ? `${(result.size / (1024 * 1024)).toFixed(2)} MB`
+              : `${(result.size / 1024).toFixed(2)} kB`;
 
-  } catch (error) {
-    const sourceText = from === 'where'
-      ? 'in any repository'
-      : from
-        ? `from ${from}`
-        : 'in the GitHub, GitLab R2 and B2 storage';
+            return {
+              fileName: FILE,
+              size: formattedSize,
+              source: `${source} (${repo})`,
+              duration: `${duration}ms`
+            };
+          } catch (error) {
+            throw new Error(`Not found in ${source} (${repo})`);
+          }
+        } else {
+          // 对于内容获取，直接返回响应
+          if (!response.ok) {
+            throw new Error(`Not found in ${source} (${repo})`);
+          }
+          return response;
+        }
+      }).catch(error => {
+        throw new Error(`Error in ${source} (${repo}): ${error.message}`);
+      });
+    });
 
-    const errorResponse = new Response(
-      `404: Cannot find the ${FILE} ${sourceText}.`,
-      { status: 404 }
-    );
+    try {
+      if (requests.length === 0) {
+        throw new Error('No valid source specified');
+      }
 
-    // 不缓存错误响应
-    return errorResponse;
+      const result = await Promise.any(fetchPromises);
+
+      let response;
+      if (from === 'where') {
+        // 如果是 where 查询，返回 JSON 格式响应
+        response = new Response(JSON.stringify(result, null, 2), {
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      } else if (result instanceof Response) {
+        // 先读取响应体
+        const blob = await result.blob();
+
+        // 创建新的响应，只使用最基本的必要头部
+        response = new Response(blob, {
+          status: 200,
+          headers: {
+            'Content-Type': result.headers.get('Content-Type') || 'application/octet-stream',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      } else {
+        throw new Error("Unexpected result type");
+      }
+
+      // 添加缓存控制
+      if (from !== 'where') {
+        // 只缓存成功的响应
+        ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      }
+
+      return response;
+
+    } catch (error) {
+      const sourceText = from === 'where'
+        ? 'in any repository'
+        : from
+          ? `from ${from}`
+          : 'in the GitHub, GitLab, R2, and B2 storage';
+
+      const errorResponse = new Response(
+        `404: Cannot find the ${FILE} ${sourceText}.`,
+        {
+          status: 404,
+          headers: {
+            'Content-Type': 'text/plain',
+            'Access-Control-Allow-Origin': '*'
+          }
+        }
+      );
+
+      return errorResponse;
+    }
   }
-}
 };
 
 // 列出所有节点仓库状态
@@ -508,7 +519,10 @@ async function listProjects(gitlabConfigs, githubRepos, githubUsername, githubPa
   }
 
   return new Response(result, {
-    headers: { 'Content-Type': 'text/plain' }
+    headers: { 
+      'Content-Type': 'text/plain',
+      'Access-Control-Allow-Origin': '*'
+    }
   });
 }
 

@@ -189,45 +189,62 @@ export default {
 
     try {
       if (requests.length === 0) {
-        // 如果没有请求来源，返回错误
         throw new Error('No valid source specified');
       }
 
-      const result = await Promise.any(fetchPromises); // 获取第一个成功的响应
+      const result = await Promise.any(fetchPromises);
 
       let response;
       if (from === 'where') {
-        // 如果是 "where" 查询，返回 JSON 格式响应
+        // 如果是 where 查询，返回 JSON 格式响应
         response = new Response(JSON.stringify(result, null, 2), {
           headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*'
           }
         });
+      } else if (result instanceof Response) {
+        // 先读取响应体
+        const blob = await result.blob();
+
+        // 创建新的响应，只使用最基本的必要头部
+        response = new Response(blob, {
+          status: 200,
+          headers: {
+            'Content-Type': result.headers.get('Content-Type') || 'application/octet-stream',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
       } else {
-        // 否则返回原始文件内容
-        response = new Response(result.body, result);
-        response.headers.delete('Authorization');
-        response.headers.delete('PRIVATE-TOKEN');
+        throw new Error("Unexpected result type");
       }
 
-      response.headers.append("Cache-Control", `s-maxage=${CACHE_MAX_AGE}`); // 添加缓存头
-      ctx.waitUntil(cache.put(cacheKey, response.clone())); // 异步存入缓存
+      // 添加缓存控制
+      if (from !== 'where') {
+        // 只缓存成功的响应
+        ctx.waitUntil(cache.put(cacheKey, response.clone()));
+      }
+
       return response;
 
     } catch (error) {
-      // 如果请求失败，返回 404 错误信息
       const sourceText = from === 'where'
         ? 'in any repository'
         : from
           ? `from ${from}`
           : 'in the GitHub and GitLab picture cluster';
+
       const errorResponse = new Response(
         `404: Cannot find the ${FILE} ${sourceText}.`,
-        { status: 404 }
+        {
+          status: 404,
+          headers: {
+            'Content-Type': 'text/plain',
+            'Access-Control-Allow-Origin': '*'
+          }
+        }
       );
-      errorResponse.headers.append("Cache-Control", `s-maxage=${CACHE_MAX_AGE}`); // 添加缓存头
-      ctx.waitUntil(cache.put(cacheKey, errorResponse.clone())); // 异步存入缓存
+
       return errorResponse;
     }
   }
@@ -277,7 +294,10 @@ async function listProjects(gitlabConfigs, githubRepos, githubUsername, githubPa
   }
 
   return new Response(result, {
-    headers: { 'Content-Type': 'text/plain' }
+    headers: {
+      'Content-Type': 'text/plain',
+      'Access-Control-Allow-Origin': '*'
+    }
   });
 }
 

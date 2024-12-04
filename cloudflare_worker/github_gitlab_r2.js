@@ -38,7 +38,6 @@ const DIR = '';
 // 定义集群里全部节点连接状态的密码验证，区分大小写（优先使用自定义密码，若为空则使用 GITHUB_PAT）
 const CHECK_PASSWORD = '' || GITHUB_PAT;
 
-
 // 用户配置区域结束 =================================
 
 // AWS SDK 签名相关函数开始 =================================
@@ -336,9 +335,9 @@ export default {
     if (requests.length === 0) {
       throw new Error('No valid source specified');
     }
-
+  
     const result = await Promise.any(fetchPromises);
-
+  
     let response;
     if (from === 'where') {
       response = new Response(JSON.stringify(result, null, 2), {
@@ -348,37 +347,48 @@ export default {
         }
       });
     } else if (result instanceof Response) {
-      response = new Response(result.body, result);
-      // 清除敏感header
-      response.headers.delete('Authorization');
-      response.headers.delete('PRIVATE-TOKEN');
-      response.headers.delete('x-amz-content-sha256');
-      response.headers.delete('x-amz-date');
+      // 先读取响应体
+      const blob = await result.blob();
+      
+      // 创建新的响应，只使用最基本的必要头部
+      response = new Response(blob, {
+        status: 200,
+        headers: {
+          'Content-Type': result.headers.get('Content-Type') || 'application/octet-stream',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
     } else {
       throw new Error("Unexpected result type");
     }
-
-    // 添加缓存控制头
-    response.headers.append("Cache-Control", "s-maxage=31556952");
-
-    // 异步缓存响应
-    ctx.waitUntil(cache.put(cacheKey, response.clone()));
-
+  
+    // 不再使用原始响应的缓存控制
+    if (from !== 'where') {
+      // 只缓存成功的响应
+      ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    }
+  
     return response;
-
+  
   } catch (error) {
     const sourceText = from === 'where'
       ? 'in any repository'
       : from
         ? `from ${from}`
         : 'in the GitHub, GitLab and R2 storage';
-
+  
     const errorResponse = new Response(
       `404: Cannot find the ${FILE} ${sourceText}.`,
-      { status: 404 }
+      { 
+        status: 404,
+        headers: {
+          'Content-Type': 'text/plain',
+          'Access-Control-Allow-Origin': '*'
+        }
+      }
     );
-
-    // 不缓存错误响应
+  
+    // 错误响应不缓存
     return errorResponse;
   }
 }

@@ -8,7 +8,7 @@ const CONFIG = {
   BLACKLISTED_REPOS: [], // 定义黑名单的仓库序号，只填序号，中间用英文逗号隔开，比如[2,5]，不请求 pic2 和 pic5
   DIR: '',         // 仓库中的目录路径
   CACHE_MAX_AGE: 31556952, // 缓存时间（1年）
-  CHECK_PASSWORD: ''     // 检查密码，如未设置则使用 PAT
+  CHECK_PASSWORD: ''     // 用户设置的密码，用于状态检测功能，区分大小写，如未设置则使用 GITHUB_PAT
 };
 
 // 用户配置区域结束 =================================
@@ -78,8 +78,8 @@ async function listProjects(repos, githubUsername, githubRepoPrefix, githubPat) 
 
   return new Response(result, {
     headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Content-Language': 'en-US'
+      'Content-Type': 'text/plain',
+      'Access-Control-Allow-Origin': '*'
     }
   });
 }
@@ -102,13 +102,12 @@ export default {
 
       // 检查状态请求
       if (url.pathname === `/${CONFIG.CHECK_PASSWORD || CONFIG.GITHUB_PAT}`) {
-        const response = await listProjects(
+        return await listProjects(
           REPOS,
           CONFIG.GITHUB_USERNAME,
           CONFIG.GITHUB_REPO_PREFIX,
           CONFIG.GITHUB_PAT
         );
-        return response;
       }
 
       // 构建 GitHub raw 文件的 URL 列表
@@ -118,29 +117,31 @@ export default {
 
       // 创建并发请求
       const requests = urls.map(githubUrl => {
-        const modifiedRequest = new Request(githubUrl, {
-          method: request.method,
+        return fetch(new Request(githubUrl, {
+          method: 'GET',
           headers: {
             'Authorization': `token ${CONFIG.GITHUB_PAT}`,
             'Accept': 'application/vnd.github.v3.raw'
           }
-        });
-        return fetch(modifiedRequest).then(response => {
-          if (response.ok) return response;
-          throw new Error(`Not Found in ${githubUrl}`);
+        })).then(async response => {
+          if (!response.ok) throw new Error(`Not Found in ${githubUrl}`);
+          return response;
         });
       });
 
       // 等待第一个成功的请求
       const response = await Promise.any(requests);
-      const body = await response.arrayBuffer();
+      
+      // 读取响应体
+      const blob = await response.blob();
 
-      // 创建新的响应
-      let result = new Response(body, {
-        status: response.status,
+      // 创建新的响应，使用最小化的头部
+      const result = new Response(blob, {
+        status: 200,
         headers: {
-          'Content-Type': response.headers.get('Content-Type'),
-          'Cache-Control': `public, s-maxage=${CONFIG.CACHE_MAX_AGE}`
+          'Content-Type': response.headers.get('Content-Type') || 'application/octet-stream',
+          'Cache-Control': `public, s-maxage=${CONFIG.CACHE_MAX_AGE}`,
+          'Access-Control-Allow-Origin': '*'
         }
       });
 
@@ -150,19 +151,17 @@ export default {
       return result;
 
     } catch (error) {
-      // 错误处理
-      const errorResponse = new Response(
+      // 错误响应使用最小化的头部
+      return new Response(
         `404: Could not find ${url.pathname.split('/').pop()} in the image cluster.`,
         {
           status: 404,
           headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Cache-Control': 'no-store'
+            'Content-Type': 'text/plain',
+            'Access-Control-Allow-Origin': '*'
           }
         }
       );
-
-      return errorResponse;
     }
   }
 };

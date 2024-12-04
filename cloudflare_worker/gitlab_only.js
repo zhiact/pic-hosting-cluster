@@ -8,7 +8,7 @@ const GITLAB_CONFIGS = [
     { name: 'repoName-4', id: 'repoID-4', token: 'repoAPI-4' },
 ];
 
-// 用户设置的密码，用于状态检测功能。如果为空，则默认使用第一个仓库的 API 令牌作为密码
+// 用户设置的密码，用于状态检测功能，区分大小写。如果为空，则默认使用第一个仓库的 API 令牌作为密码
 const CHECK_PASSWORD = '' || GITLAB_CONFIGS[0].token;
 
 // 定义全局缓存时间，单位为秒，默认值为一年
@@ -17,103 +17,6 @@ const CACHE_MAX_AGE = 31556952; // 一年
 // 用户配置区域结束 =================================
 
 // 处理所有进入的 HTTP 请求
-export default {
-  async fetch(request, env, ctx) {
-    const cacheUrl = new URL(request.url);
-    const cacheKey = new Request(cacheUrl.toString(), request);
-    const cache = caches.default;
-
-    // 检查缓存
-    let cacheResponse = await cache.match(cacheKey);
-    if (cacheResponse) {
-      return cacheResponse;
-    }
-
-    // 解析请求 URL
-    const url = new URL(request.url);
-    const pathParts = url.pathname.split('/').filter(Boolean);
-
-    // 检查是否为状态检测请求
-    if (pathParts[0] === CHECK_PASSWORD) {
-      return await listProjects();
-    }
-
-    // 验证 URL 格式
-    if (pathParts.length < 1) {
-      return new Response('Invalid URL format', {
-        status: 400,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-      });
-    }
-
-    // 获取请求的 GitLab 仓库名
-    const gitlabRepo = pathParts[0];
-
-    // 查找仓库配置
-    const repoConfig = GITLAB_CONFIGS.find((config) => config.name === gitlabRepo);
-    if (!repoConfig) {
-      return new Response('Repository not found', {
-        status: 404,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-      });
-    }
-
-    // 构建文件路径
-    const remainingPath = pathParts.slice(1).join('/');
-    const encodedPath = encodeURIComponent(remainingPath).replace(/%2F/g, '/');
-
-    // 构建 GitLab API URL
-    const apiUrl = `https://gitlab.com/api/v4/projects/${repoConfig.id}/repository/files/${encodedPath}/raw?ref=main`;
-
-    // 发送请求到 GitLab
-    const response = await fetch(apiUrl, {
-      method: 'GET',
-      headers: {
-        'PRIVATE-TOKEN': repoConfig.token,
-      },
-    });
-
-    // 处理错误响应
-    if (!response.ok) {
-      return new Response('Error fetching data from Upstream', {
-        status: response.status,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-      });
-    }
-
-    // 获取内容类型和响应体
-    const contentType = response.headers.get('Content-Type');
-    const body = await response.arrayBuffer();
-
-    // 创建响应对象并设置缓存头
-    let result = new Response(body, { status: response.status });
-    result.headers.append("Cache-Control", `s-maxage=${CACHE_MAX_AGE}`);
-    ctx.waitUntil(cache.put(cacheKey, result.clone()));
-
-    // 返回响应
-    return result;
-  },
-};
-
-// 列出所有 GitLab 项目状态
-async function listProjects() {
-  const projectChecks = GITLAB_CONFIGS.map(async (config) => {
-    const [status, username] = await checkGitLabProject(config.id, config.token);
-    return `GitLab: ${config.name} - ${status} (Username: ${username})`;
-  });
-
-  const results = await Promise.all(projectChecks);
-  const result = 'GitLab Projects:\n\n' + results.join('\n');
-
-  return new Response(result, {
-    headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Content-Language': 'en-US',
-    },
-  });
-}
-
-// 检查 GitLab 项目状态
 async function checkGitLabProject(projectId, pat) {
   const url = `https://gitlab.com/api/v4/projects/${projectId}`;
   try {
@@ -136,3 +39,132 @@ async function checkGitLabProject(projectId, pat) {
     return [`Error: ${error.message}`, 'Error'];
   }
 }
+
+// 列出所有 GitLab 项目状态
+async function listProjects() {
+  const projectChecks = GITLAB_CONFIGS.map(async (config) => {
+    const [status, username] = await checkGitLabProject(config.id, config.token);
+    return `GitLab: ${config.name} - ${status} (Username: ${username})`;
+  });
+
+  const results = await Promise.all(projectChecks);
+  const result = 'GitLab Projects:\n\n' + results.join('\n');
+
+  return new Response(result, {
+    headers: {
+      'Content-Type': 'text/plain',
+      'Access-Control-Allow-Origin': '*'
+    }
+  });
+}
+
+export default {
+  async fetch(request, env, ctx) {
+    try {
+      const cacheUrl = new URL(request.url);
+      const cacheKey = new Request(cacheUrl.toString(), request);
+      const cache = caches.default;
+
+      let cacheResponse = await cache.match(cacheKey);
+      if (cacheResponse) {
+        return cacheResponse;
+      }
+
+      const url = new URL(request.url);
+      const pathParts = url.pathname.split('/').filter(Boolean);
+
+      // 检查是否为状态检测请求
+      if (pathParts[0] === CHECK_PASSWORD) {
+        return await listProjects();
+      }
+
+      if (pathParts.length < 1) {
+        return new Response('Invalid URL format', {
+          status: 400,
+          headers: {
+            'Content-Type': 'text/plain',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+
+      const gitlabRepo = pathParts[0];
+      const repoConfig = GITLAB_CONFIGS.find(repo => repo.name === gitlabRepo);
+
+      if (!repoConfig) {
+        return new Response('Repository not found', {
+          status: 404,
+          headers: {
+            'Content-Type': 'text/plain',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+
+      // 修改文件路径处理方式
+      const filePath = pathParts.slice(1).join('/');
+      console.log('Accessing file:', filePath);
+
+      // 检查文件是否存在
+      const checkUrl = `https://gitlab.com/api/v4/projects/${repoConfig.id}/repository/files/${encodeURIComponent(filePath)}?ref=main`;
+      const checkResponse = await fetch(checkUrl, {
+        headers: {
+          'PRIVATE-TOKEN': repoConfig.token
+        }
+      });
+
+      if (checkResponse.status === 404) {
+        console.log('File not found:', filePath);
+        return new Response('File not found', {
+          status: 404,
+          headers: {
+            'Content-Type': 'text/plain',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+
+      // 获取文件内容
+      const apiUrl = `https://gitlab.com/api/v4/projects/${repoConfig.id}/repository/files/${encodeURIComponent(filePath)}/raw?ref=main`;
+      const response = await fetch(apiUrl, {
+        headers: {
+          'PRIVATE-TOKEN': repoConfig.token
+        }
+      });
+
+      if (!response.ok) {
+        console.error('GitLab API Error:', response.status);
+        return new Response('Error fetching file', {
+          status: response.status,
+          headers: {
+            'Content-Type': 'text/plain',
+            'Access-Control-Allow-Origin': '*'
+          }
+        });
+      }
+
+      const blob = await response.blob();
+      const result = new Response(blob, {
+        status: 200,
+        headers: {
+          'Content-Type': response.headers.get('Content-Type') || 'application/octet-stream',
+          'Cache-Control': `public, s-maxage=${CACHE_MAX_AGE}`,
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+
+      ctx.waitUntil(cache.put(cacheKey, result.clone()));
+      return result;
+
+    } catch (error) {
+      console.error('Worker error:', error);
+      return new Response(`Internal Server Error: ${error.message}`, {
+        status: 500,
+        headers: {
+          'Content-Type': 'text/plain',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+  }
+};
