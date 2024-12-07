@@ -7,12 +7,12 @@ const GITLAB_CONFIGS = [
     { name: '', id: '', token: '' },  // GitLab 账户3
     { name: '', id: '', token: '' },  // GitLab 账户4
 ];
-  
+
 // GitHub 配置
 const GITHUB_REPOS = [''];  // GitHub 仓库名列表
 const GITHUB_USERNAME = '';  // GitHub 用户名
 const GITHUB_PAT = '';  // GitHub 个人访问令牌
-  
+
 // R2 存储配置
 const R2_CONFIGS = [
   {
@@ -50,7 +50,7 @@ const B2_CONFIGS = [
   },
   // 可以添加更多 B2 配置
 ];
-  
+
 // 定义集群访问目录
 const DIR = '';
 
@@ -65,16 +65,16 @@ const CHECK_PASSWORD = '' || GITHUB_PAT;
 async function getSignedUrl(config, method, path) {
   const region = 'auto';
   const service = 's3';
-  
+
   // 根据配置类型确定 host 和认证信息
-  const host = config.endPoint 
+  const host = config.endPoint
     ? config.endPoint  // B2 配置使用 endPoint
     : `${config.accountId}.r2.cloudflarestorage.com`;  // R2 配置使用默认格式
-    
+
   // 根据配置类型确定认证信息
   const accessKeyId = config.endPoint ? config.keyId : config.accessKeyId;
   const secretKey = config.endPoint ? config.applicationKey : config.secretAccessKey;
-    
+
   const datetime = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
   const date = datetime.substr(0, 8);
 
@@ -129,10 +129,10 @@ async function sha256(message) {
   return Array.from(new Uint8Array(hashBuffer))
     .map(b => b.toString(16).padStart(2, '0'))
     .join('');
-}
+  }
 
-// HMAC-SHA256 函数
-async function hmacSha256(key, message) {
+  // HMAC-SHA256 函数
+  async function hmacSha256(key, message) {
   const keyBuffer = key instanceof ArrayBuffer ? key : new TextEncoder().encode(key);
   const messageBuffer = new TextEncoder().encode(message);
 
@@ -151,10 +151,10 @@ async function hmacSha256(key, message) {
   );
 
   return signature;
-}
+  }
 
-// 获取签名
-async function getSignature(secret, date, region, service, stringToSign) {
+  // 获取签名
+  async function getSignature(secret, date, region, service, stringToSign) {
   const kDate = await hmacSha256('AWS4' + secret, date);
   const kRegion = await hmacSha256(kDate, region);
   const kService = await hmacSha256(kRegion, service);
@@ -164,9 +164,9 @@ async function getSignature(secret, date, region, service, stringToSign) {
   return Array.from(new Uint8Array(signature))
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
-}
+  }
 
-export default {
+  export default {
   async fetch(request, env, ctx) {
     // 检查缓存
     const cacheUrl = new URL(request.url);
@@ -500,18 +500,18 @@ async function listProjects(gitlabConfigs, githubRepos, githubUsername, githubPa
 
     // 添加 GitLab 结果
     gitlabConfigs.forEach((config, index) => {
-      const [status, username, fileCount] = gitlabResults[index];
-      result += `GitLab: Project ID ${config.id} - ${status} (Username: ${username}, Files: ${fileCount})\n`;
+      const [status, username, fileCount, totalSize] = gitlabResults[index];
+      result += `GitLab: Project ID ${config.id} - ${status} (Username: ${username}, Files: ${fileCount}, Size: ${totalSize})\n`;
     });
 
     // 添加 R2 结果
-    r2Results.forEach(([status, name, bucket]) => {
-      result += `R2 Storage: ${name} - ${status} (Bucket: ${bucket})\n`;
+    r2Results.forEach(([status, name, bucket, fileCount, totalSize]) => {
+      result += `R2 Storage: ${name} - ${status} (Bucket: ${bucket}, Files: ${fileCount}, Size: ${totalSize})\n`;
     });
 
     // 添加 B2 结果
-    b2Results.forEach(([status, name, bucket]) => {
-      result += `B2 Storage: ${name} - ${status} (Bucket: ${bucket})\n`;
+    b2Results.forEach(([status, name, bucket, fileCount, totalSize]) => {
+      result += `B2 Storage: ${name} - ${status} (Bucket: ${bucket}, Files: ${fileCount}, Size: ${totalSize})\n`;
     });
 
   } catch (error) {
@@ -519,7 +519,7 @@ async function listProjects(gitlabConfigs, githubRepos, githubUsername, githubPa
   }
 
   return new Response(result, {
-    headers: { 
+    headers: {
       'Content-Type': 'text/plain',
       'Access-Control-Allow-Origin': '*'
     }
@@ -616,97 +616,212 @@ async function checkGitHubRepo(owner, repo, pat) {
   }
 }
 
+// 获取单个文件大小的辅助函数
+async function getFileSizeFromGitLab(projectId, filePath, pat, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      // 使用 raw 端点和 HEAD 请求获取文件大小
+      const fileUrl = `https://gitlab.com/api/v4/projects/${projectId}/repository/files${filePath}/raw?ref=main`;
+      const response = await fetch(fileUrl, {
+        method: 'HEAD',
+        headers: { 'PRIVATE-TOKEN': pat }
+      });
+
+      if (response.status === 200) {
+        const contentLength = response.headers.get('content-length');
+        return contentLength ? parseInt(contentLength, 10) : 0;
+      } else if (response.status === 429) {
+        // 遇到限流时等待后重试
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+        continue;
+      }
+      console.error(`Failed to get file size: ${response.status}`);
+      return 0;
+    } catch (error) {
+      if (i === retries - 1) {
+        console.error(`Error fetching file size:`, error);
+      }
+      if (i < retries - 1) {
+        await new Promise(resolve => setTimeout(resolve, 1000 * (i + 1)));
+        continue;
+      }
+    }
+    return 0;
+  }
+  return 0;
+}
+
+// 添加并发控制的辅助函数
+async function asyncPool(concurrency, iterable, iteratorFn) {
+  const ret = [];
+  const executing = new Set();
+
+  for (const item of iterable) {
+    const p = Promise.resolve().then(() => iteratorFn(item));
+    ret.push(p);
+    executing.add(p);
+
+    const clean = () => executing.delete(p);
+    p.then(clean).catch(clean);
+
+    if (executing.size >= concurrency) {
+      await Promise.race(executing);
+    }
+  }
+
+  return Promise.all(ret);
+}
+
 // 检查 GitLab 项目的异步函数
 async function checkGitLabProject(projectId, pat) {
   const projectUrl = `https://gitlab.com/api/v4/projects/${projectId}`;
-  const filesUrl = `https://gitlab.com/api/v4/projects/${projectId}/repository/tree?path=${DIR}&per_page=100`; // 使用 per_page 参数增加返回数量
+  // 步骤1: 获取文件列表
+  const filesUrl = `https://gitlab.com/api/v4/projects/${projectId}/repository/tree?ref=main&path=${DIR}`;
 
   try {
     const [projectResponse, filesResponse] = await Promise.all([
       fetch(projectUrl, {
-        headers: {
-          'PRIVATE-TOKEN': pat
-        }
+        headers: { 'PRIVATE-TOKEN': pat }
       }),
       fetch(filesUrl, {
-        headers: {
-          'PRIVATE-TOKEN': pat
-        }
+        headers: { 'PRIVATE-TOKEN': pat }
       })
     ]);
 
     if (projectResponse.status === 200) {
       const projectData = await projectResponse.json();
+      let totalSize = 0;
       let fileCount = 0;
 
       if (filesResponse.status === 200) {
         const filesData = await filesResponse.json();
+        fileCount = filesData.length;
 
-        // 只计算文件数量（不包括目录）
-        fileCount = filesData.filter(file => file.type === 'blob').length;
+        if (fileCount > 0) {
+          console.log(`Found ${fileCount} files in ${DIR} directory`);
+
+          // 步骤2: 并发获取每个文件的大小
+          const CONCURRENT_REQUESTS = 100;
+          const sizes = await asyncPool(CONCURRENT_REQUESTS, filesData, async (file) => {
+            // 构造文件路径，格式为 /files%2Ffilename
+            const encodedPath = `/${encodeURIComponent(file.path)}`;
+            const size = await getFileSizeFromGitLab(projectId, encodedPath, pat);
+            console.log(`File: ${file.path}, Size: ${formatSize(size)}`);
+            return size;
+          });
+
+          totalSize = sizes.reduce((acc, size) => acc + size, 0);
+          console.log(`Total size: ${formatSize(totalSize)}`);
+        }
       }
 
       return [
         `working (${projectData.visibility})`,
         projectData.owner.username,
-        fileCount
+        fileCount,
+        formatSize(totalSize)
       ];
     } else if (projectResponse.status === 404) {
-      return ['not found', 'Unknown', 0];
+      return ['not found', 'Unknown', 0, '0 B'];
     } else {
-      return ['disconnect', 'Unknown', 0];
+      return ['disconnect', 'Unknown', 0, '0 B'];
     }
   } catch (error) {
-    return ['disconnect', 'Error', 0];
+    console.error('GitLab project check error:', error);
+    return ['disconnect', 'Error', 0, '0 B'];
   }
 }
 
 // 检查 R2 存储状态
 async function checkR2Storage(r2Config) {
   try {
-    const testPath = `${r2Config.bucket}/${DIR}/test-access`;
-    const signedRequest = await getSignedUrl(r2Config, 'HEAD', testPath);
+    // 1. 列出目录下所有文件
+    const listPath = `${r2Config.bucket}`;  // 列出根目录
+    const signedRequest = await getSignedUrl(r2Config, 'GET', listPath);
 
     const response = await fetch(signedRequest.url, {
-      method: 'HEAD',
       headers: signedRequest.headers
     });
 
+    let fileCount = 0;
+    let totalSize = 0;
+
+    if (response.ok) {
+      const data = await response.text();
+      // 解析 XML 响应
+      const keys = data.match(/<Key>([^<]+)<\/Key>/g) || [];
+      const sizes = data.match(/<Size>(\d+)<\/Size>/g) || [];
+
+      // 只计算指定目录下的文件
+      keys.forEach((key, index) => {
+        const filePath = key.replace(/<Key>|<\/Key>/g, '');
+        if (filePath.startsWith(DIR + '/')) {
+          fileCount++;
+          const size = parseInt(sizes[index]?.replace(/<Size>|<\/Size>/g, '') || String(0), 10);
+          totalSize += size;
+        }
+      });
+    }
+
     // 即使文件不存在，只要能访问到存储桶就认为是正常的
-    const status = response.status === 404 ? 'working' : 'error';
+    const status = response.ok ? 'working' : 'error';
 
     return [
       status,
       r2Config.name,
-      r2Config.bucket
+      r2Config.bucket,
+      fileCount,
+      formatSize(totalSize)
     ];
   } catch (error) {
-    return ['error', r2Config.name, 'connection failed'];
+    console.error('R2 Storage error:', error);
+    return ['error', r2Config.name, 'connection failed', 0, '0 B'];
   }
 }
 
 // 检查 B2 存储状态
 async function checkB2Storage(b2Config) {
   try {
-    const testPath = `${b2Config.bucket}/${DIR}/test-access`;
-    const signedRequest = await getSignedUrl(b2Config, 'HEAD', testPath);
+    // 1. 列出目录下所有文件
+    const listPath = `${b2Config.bucket}`;  // 列出根目录
+    const signedRequest = await getSignedUrl(b2Config, 'GET', listPath);
 
     const response = await fetch(signedRequest.url, {
-      method: 'HEAD',
       headers: signedRequest.headers
     });
 
+    let fileCount = 0;
+    let totalSize = 0;
+
+    if (response.ok) {
+      const data = await response.text();
+      // 解析 XML 响应
+      const keys = data.match(/<Key>([^<]+)<\/Key>/g) || [];
+      const sizes = data.match(/<Size>(\d+)<\/Size>/g) || [];
+
+      // 只计算指定目录下的文件
+      keys.forEach((key, index) => {
+        const filePath = key.replace(/<Key>|<\/Key>/g, '');
+        if (filePath.startsWith(DIR + '/')) {
+          fileCount++;
+          const size = parseInt(sizes[index]?.replace(/<Size>|<\/Size>/g, '') || String(0), 10);
+          totalSize += size;
+        }
+      });
+    }
+
     // 即使文件不存在，只要能访问到存储桶就认为是正常的
-    const status = (response.status === 404 || response.status === 403) ? 'working' : 'error';
+    const status = (response.status === 404 || response.status === 403 || response.ok) ? 'working' : 'error';
 
     return [
       status,
       b2Config.name,
       b2Config.bucket,
-      'b2'  // 添加标识符
+      fileCount,
+      formatSize(totalSize)
     ];
   } catch (error) {
     console.error('B2 Storage error:', error);
-    return ['error', b2Config.name, 'connection failed', 'b2'];
+    return ['error', b2Config.name, 'connection failed', 0, '0 B'];
   }
 }

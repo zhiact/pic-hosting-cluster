@@ -17,64 +17,118 @@ const CONFIG = {
 const REPOS = Array.from({ length: CONFIG.REPO_COUNT }, (_, i) => i + 1)
   .filter(index => !CONFIG.BLACKLISTED_REPOS.includes(index));
 
-// 获取 GitHub 用户名
-async function getGitHubUsername(pat) {
-  const url = 'https://api.github.com/user';
-  try {
-    const response = await fetch(url, {
-      headers: {
-        'Authorization': `token ${pat}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'Cloudflare Worker'
-      }
-    });
-
-    if (response.status === 200) {
-      const data = await response.json();
-      return data.login;
-    }
-    return 'Unknown';
-  } catch (error) {
-    console.error('GitHub request error:', error);
-    return 'Error';
+// 文件大小格式化函数
+function formatSize(sizeInBytes) {
+  if (sizeInBytes >= 1024 * 1024 * 1024) {
+    return `${(sizeInBytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+  } else if (sizeInBytes >= 1024 * 1024) {
+    return `${(sizeInBytes / (1024 * 1024)).toFixed(2)} MB`;
+  } else if (sizeInBytes >= 1024) {
+    return `${(sizeInBytes / 1024).toFixed(2)} kB`;
+  } else {
+    return `${sizeInBytes} bytes`;
   }
 }
 
-// 检查 GitHub 仓库状态
-async function checkGitHubRepo(owner, repo, pat) {
-  const url = `https://api.github.com/repos/${owner}/${repo}`;
+// 获取 GitHub 用户名的异步函数
+async function getGitHubUsername(pat) {
+  const url = 'https://api.github.com/user';  // GitHub 用户信息 API 地址
   try {
     const response = await fetch(url, {
       headers: {
-        'Authorization': `token ${pat}`,
-        'Accept': 'application/vnd.github.v3+json',
-        'User-Agent': 'Cloudflare Worker'
+        'Authorization': `token ${pat}`,  // 使用个人访问令牌进行授权
+        'Accept': 'application/vnd.github.v3+json',  // 指定接受的响应格式
+        'User-Agent': 'Cloudflare Worker'  // 用户代理
       }
     });
 
-    const data = await response.json();
-
+    // 如果响应状态为 200，表示成功
     if (response.status === 200) {
-      return `Working (${data.private ? 'Private' : 'Public'})`;
-    } else if (response.status === 404) {
-      return 'Not found';
+      const data = await response.json();  // 解析 JSON 数据
+      return data.login;  // 返回用户登录名
+    } else {
+      console.error('GitHub API Error:', response.status);  // 记录错误状态
+      return 'Unknown';  // 返回未知状态
     }
-    return `Error: ${response.status} - ${data.message}`;
   } catch (error) {
-    return `Error: ${error.message}`;
+    console.error('GitHub request error:', error);  // 记录请求错误
+    return 'Error';  // 返回错误状态
+  }
+}
+
+// 检查 GitHub 仓库的异步函数
+async function checkGitHubRepo(owner, repo, pat, dir) {
+  const repoUrl = `https://api.github.com/repos/${owner}/${repo}`;
+  const contentsUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${dir}`; // 直接检查指定目录
+
+  const headers = {
+    'Authorization': `token ${pat}`,
+    'Accept': 'application/vnd.github.v3+json',
+    'User-Agent': 'Cloudflare Worker'
+  };
+
+  try {
+    // 并发请求获取仓库信息和目录内容
+    const [repoResponse, contentsResponse] = await Promise.all([
+      fetch(repoUrl, { headers }),
+      fetch(contentsUrl, { headers })
+    ]);
+
+    const repoData = await repoResponse.json();
+
+    if (repoResponse.status !== 200) {
+      throw new Error(`Repository error: ${repoData.message}`);
+    }
+
+    // 如果目录不存在或无法访问
+    if (contentsResponse.status !== 200) {
+      return {
+        status: `working (${repoData.private ? 'private' : 'public'})`,
+        fileCount: 0,
+        fileSize: 0
+      };
+    }
+
+    const contentsData = await contentsResponse.json();
+
+    // 计算文件数量和总大小
+    const fileStats = contentsData.reduce((acc, item) => {
+      if (item.type === 'file') {
+        return {
+          count: acc.count + 1,
+          size: acc.size + (item.size || 0)
+        };
+      }
+      return acc;
+    }, { count: 0, size: 0 });
+
+    return {
+      status: `working (${repoData.private ? 'private' : 'public'})`,
+      fileCount: fileStats.count,
+      fileSize: fileStats.size
+    };
+
+  } catch (error) {
+    console.error(`Error checking GitHub repo ${repo}:`, error);
+    return {
+      status: `error: ${error.message}`,
+      fileCount: 0,
+      fileSize: 0
+    };
   }
 }
 
 // 列出所有项目状态
-async function listProjects(repos, githubUsername, githubRepoPrefix, githubPat) {
+async function listProjects(repos, githubUsername, githubRepoPrefix, githubPat, dir) {
   const actualUsername = await getGitHubUsername(githubPat);
   const statusChecks = repos.map(async repoNumber => {
-    const githubStatus = await checkGitHubRepo(githubUsername, `${githubRepoPrefix}${repoNumber}`, githubPat);
-    return `GitHub: ${githubRepoPrefix}${repoNumber} - ${githubStatus} (Username: ${actualUsername})`;
+    const repo = `${githubRepoPrefix}${repoNumber}`;
+    const repoStatus = await checkGitHubRepo(githubUsername, repo, githubPat, dir);
+    return `GitHub: ${repo} - ${repoStatus.status} (Username: ${actualUsername}, Files: ${repoStatus.fileCount}, Size: ${formatSize(repoStatus.fileSize)})`;
   });
 
   const results = await Promise.all(statusChecks);
-  const result = 'GitHub Repositories:\n\n' + results.join('\n');
+  const result = results.join('\n');
 
   return new Response(result, {
     headers: {
@@ -87,6 +141,22 @@ async function listProjects(repos, githubUsername, githubRepoPrefix, githubPat) 
 export default {
   async fetch(request, env, ctx) {
     try {
+      const url = new URL(request.url);
+
+      // 检查状态请求
+      if (url.pathname === `/${CONFIG.CHECK_PASSWORD || CONFIG.GITHUB_PAT}`) {
+        return await listProjects(
+          REPOS,
+          CONFIG.GITHUB_USERNAME,
+          CONFIG.GITHUB_REPO_PREFIX,
+          CONFIG.GITHUB_PAT,
+          CONFIG.DIR
+        );
+      }
+
+      // 原有的文件获取逻辑保持不变
+      const FILE = url.pathname.split('/').pop();
+
       // 缓存检查
       const cacheUrl = new URL(request.url);
       const cacheKey = new Request(cacheUrl.toString(), request);
@@ -95,19 +165,6 @@ export default {
 
       if (cacheResponse) {
         return cacheResponse;
-      }
-
-      const url = new URL(request.url);
-      const FILE = url.pathname.split('/').pop();
-
-      // 检查状态请求
-      if (url.pathname === `/${CONFIG.CHECK_PASSWORD || CONFIG.GITHUB_PAT}`) {
-        return await listProjects(
-          REPOS,
-          CONFIG.GITHUB_USERNAME,
-          CONFIG.GITHUB_REPO_PREFIX,
-          CONFIG.GITHUB_PAT
-        );
       }
 
       // 构建 GitHub raw 文件的 URL 列表
@@ -131,7 +188,7 @@ export default {
 
       // 等待第一个成功的请求
       const response = await Promise.any(requests);
-      
+
       // 读取响应体
       const blob = await response.blob();
 
