@@ -2,10 +2,10 @@
 
 // GitLab 节点配置
 const GITLAB_CONFIGS = [
-    { name: '', id: '', token: '' },  // GitLab 账户1
-    { name: '', id: '', token: '' },  // GitLab 账户2
-    { name: '', id: '', token: '' },  // GitLab 账户3
-    { name: '', id: '', token: '' },  // GitLab 账户4
+  { name: '', id: '', token: '' },  // GitLab 账户1
+  { name: '', id: '', token: '' },  // GitLab 账户2
+  { name: '', id: '', token: '' },  // GitLab 账户3
+  { name: '', id: '', token: '' },  // GitLab 账户4
 ];
 
 // GitHub 配置
@@ -166,16 +166,23 @@ async function sha256(message) {
       .join('');
   }
 
-  export default {
+export default {
   async fetch(request, env, ctx) {
-    // 检查缓存
-    const cacheUrl = new URL(request.url);
-    const cacheKey = new Request(cacheUrl.toString(), request);
-    const cache = caches.default;
-    let cacheResponse = await cache.match(cacheKey);
+    const url = new URL(request.url);
+    const from = url.searchParams.get('from')?.toLowerCase();
 
-    if (cacheResponse) {
-      return cacheResponse;
+    // 只在没有 from 参数时才检查和使用缓存
+    let cacheResponse;
+    if (!from) {
+      // 检查缓存
+      const cacheUrl = new URL(request.url);
+      const cacheKey = new Request(cacheUrl.toString(), request);
+      const cache = caches.default;
+      cacheResponse = await cache.match(cacheKey);
+
+      if (cacheResponse) {
+        return cacheResponse;
+      }
     }
 
     const isValidGithubRepos = Array.isArray(GITHUB_REPOS) &&
@@ -186,9 +193,7 @@ async function sha256(message) {
       ? GITHUB_REPOS.filter(repo => repo.trim() !== '')
       : GITLAB_CONFIGS.map(config => config.name);
 
-    const url = new URL(request.url);
     const FILE = url.pathname.split('/').pop();
-    const from = url.searchParams.get('from')?.toLowerCase();
 
     if (url.pathname === `/${CHECK_PASSWORD}`) {
       const response = await listProjects(GITLAB_CONFIGS, githubRepos, GITHUB_USERNAME, GITHUB_PAT);
@@ -414,21 +419,32 @@ async function sha256(message) {
         // 先读取响应体
         const blob = await result.blob();
 
-        // 创建新的响应，只使用最基本的必要头部
+        // 创建新的响应，设置适当的头部
+        const headers = {
+          'Content-Type': result.headers.get('Content-Type') || 'application/octet-stream',
+          'Access-Control-Allow-Origin': '*'
+        };
+
+        // 如果有 from 参数，添加禁止缓存的头部
+        if (from) {
+          headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, proxy-revalidate';
+          headers['Pragma'] = 'no-cache';
+          headers['Expires'] = '0';
+        }
+
         response = new Response(blob, {
           status: 200,
-          headers: {
-            'Content-Type': result.headers.get('Content-Type') || 'application/octet-stream',
-            'Access-Control-Allow-Origin': '*'
-          }
+          headers: headers
         });
       } else {
         throw new Error("Unexpected result type");
       }
 
-      // 添加缓存控制
-      if (from !== 'where') {
-        // 只缓存成功的响应
+      // 只在没有 from 参数且不是 where 查询时才缓存响应
+      if (!from && from !== 'where') {
+        const cacheUrl = new URL(request.url);
+        const cacheKey = new Request(cacheUrl.toString(), request);
+        const cache = caches.default;
         ctx.waitUntil(cache.put(cacheKey, response.clone()));
       }
 

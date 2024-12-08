@@ -29,13 +29,21 @@ const CACHE_MAX_AGE = 31556952; // 一年
 // Cloudflare Worker 主函数，处理 HTTP 请求
 export default {
   async fetch(request, env, ctx) {
-    const cacheUrl = new URL(request.url); // 获取请求的 URL
-    const cacheKey = new Request(cacheUrl.toString(), request); // 创建缓存键
-    const cache = caches.default; // 使用默认缓存
-    let cacheResponse = await cache.match(cacheKey); // 查询是否已缓存
-    if (cacheResponse) {
-      // 如果有缓存，直接返回缓存内容
-      return cacheResponse;
+    const url = new URL(request.url); // 获取请求的 URL
+    const from = url.searchParams.get('from')?.toLowerCase(); // 获取来源参数
+
+    // 只在没有 from 参数时才检查和使用缓存
+    let cacheResponse;
+    if (!from) {
+      const cacheUrl = new URL(request.url); // 获取请求 URL 的对象表示
+      const cacheKey = new Request(cacheUrl.toString(), request);
+      const cache = caches.default;
+      cacheResponse = await cache.match(cacheKey);
+
+      if (cacheResponse) {
+        // 如果有缓存，直接返回缓存内容
+        return cacheResponse;
+      }
     }
 
     // 验证 GitHub 仓库列表是否有效
@@ -48,15 +56,22 @@ export default {
       ? GITHUB_REPOS.filter(repo => repo.trim() !== '')
       : GITLAB_CONFIGS.map(config => config.name);
 
-    const url = new URL(request.url); // 获取请求 URL 的对象表示
     const FILE = url.pathname.split('/').pop(); // 获取请求文件名
-    const from = url.searchParams.get('from')?.toLowerCase(); // 获取来源参数
 
     if (url.pathname === `/${CHECK_PASSWORD}`) {
-      // 如果路径匹配密码，则执行项目列表的查询功能
       const result = await listProjects(GITLAB_CONFIGS, githubRepos, GITHUB_USERNAME, GITHUB_PAT);
-      result.headers.append("Cache-Control", `s-maxage=${CACHE_MAX_AGE}`); // 添加缓存头
-      ctx.waitUntil(cache.put(cacheKey, result.clone())); // 异步存入缓存
+      // 如果有 from 参数，添加禁止缓存的头部
+      if (from) {
+        result.headers.append('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+        result.headers.append('Pragma', 'no-cache');
+        result.headers.append('Expires', '0');
+      } else {
+        result.headers.append('Cache-Control', `public, max-age=${CACHE_MAX_AGE}`);
+        const cacheUrl = new URL(request.url);
+        const cacheKey = new Request(cacheUrl.toString(), request);
+        const cache = caches.default;
+        ctx.waitUntil(cache.put(cacheKey, result.clone())); // 异步存入缓存
+      }
       return result;
     }
 
@@ -105,7 +120,7 @@ export default {
 
       requests = [...githubRequests, ...gitlabRequests]
     } else {
-      // 获取文件内容模式的代码保持不变...
+      // 获取文件内容模式
       if (from === 'github') {
         requests = githubRepos.map(repo => ({
           url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${repo}/main/${DIR}/${FILE}`,
@@ -200,28 +215,44 @@ export default {
         response = new Response(JSON.stringify(result, null, 2), {
           headers: {
             'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
           }
         });
       } else if (result instanceof Response) {
         // 先读取响应体
         const blob = await result.blob();
+        const headers = {
+          'Content-Type': result.headers.get('Content-Type') || 'application/octet-stream',
+          'Access-Control-Allow-Origin': '*'
+        };
 
-        // 创建新的响应，只使用最基本的必要头部
+        // 如果有 from 参数，添加禁止缓存的头部
+        if (from) {
+          headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, proxy-revalidate';
+          headers['Pragma'] = 'no-cache';
+          headers['Expires'] = '0';
+        } else {
+          // 如果没有 from 参数，使用配置的缓存时间
+          headers['Cache-Control'] = `public, max-age=${CACHE_MAX_AGE}`;
+        }
+
+        // 创建新的响应，只使用最基本的必要头部 
         response = new Response(blob, {
           status: 200,
-          headers: {
-            'Content-Type': result.headers.get('Content-Type') || 'application/octet-stream',
-            'Access-Control-Allow-Origin': '*'
-          }
+          headers: headers
         });
       } else {
         throw new Error("Unexpected result type");
       }
 
-      // 添加缓存控制
-      if (from !== 'where') {
-        // 只缓存成功的响应
+      // 只在没有 from 参数且不是 where 查询时才缓存响应
+      if (!from && from !== 'where') {
+        const cacheUrl = new URL(request.url);
+        const cacheKey = new Request(cacheUrl.toString(), request);
+        const cache = caches.default;
         ctx.waitUntil(cache.put(cacheKey, response.clone()));
       }
 
@@ -240,7 +271,10 @@ export default {
           status: 404,
           headers: {
             'Content-Type': 'text/plain',
-            'Access-Control-Allow-Origin': '*'
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
           }
         }
       );
