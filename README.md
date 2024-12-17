@@ -1,9 +1,17 @@
-# R2，GitHub 和 GitLab 分布式存储集群
+# 分布式存储集群
 
-- **方案的配置文件都是 `config.yml`，只需要根据实际修改**
+## 更新日期 2024-12-17
 
-## GitHub --→ GitLab 目录下2个文件，放到 GitHub 库: 
-- **配置文件**: `config.yml`
+## 各方案的独立分仓库
+| 方案 | worker 文件 | 同步仓库模版 | 视频教程 |
+| --- |--- |--- |--- |
+| GitHub only | [worker.js](https://raw.githubusercontent.com/fscarmen2/pic-hosting-cluster/refs/heads/main/cloudflare_worker/github_only.js) | [博文 7.2 Github 设置](https://www.fscarmen.com/2024/10/blog-post.html) | https://youtu.be/eRqIpeeo9SA |
+| GitLab only |[worker.js](https://raw.githubusercontent.com/fscarmen2/pic-hosting-cluster/refs/heads/main/cloudflare_worker/gitlab_only.js) | 使用 GitLab 平台自带的镜像功能 | https://youtu.be/tjiI3I3MkaQ |
+| GitHub + GitLab | [worker.js](https://raw.githubusercontent.com/fscarmen2/files-hosting-template-1/refs/heads/main/worker.js) | [点击使用模板库，注意需要手动改为私有仓库](https://github.com/new?template_name=files-hosting-template-1&template_owner=fscarmen2) | https://youtu.be/SGex7xJ9YdQ |
+| R2 + GitHub + GitLab | [worker.js](https://raw.githubusercontent.com/fscarmen2/files-hosting-template-2/refs/heads/main/worker.js) | [点击使用模板库，注意需要手动改为私有仓库](https://github.com/new?template_name=files-hosting-template-2&template_owner=fscarmen2) | https://youtu.be/5i-86oBLWP8 |
+| B2 + R2 + GitHub + GitLab | [worker.js](https://raw.githubusercontent.com/fscarmen2/files-hosting-template-3/refs/heads/main/worker.js) | [点击使用模板库，注意需要手动改为私有仓库](https://github.com/new?template_name=files-hosting-template-3&template_owner=fscarmen2) | https://youtu.be/4X1FjLCAckI |
+
+## GitHub --→ GitLab 目录下1个文件，放到 GitHub 库: 
 - **AC 脚本**: `./github/workflows/cluster_sync.yml`
 
 ## GitLab --→ GitHub 目录下3个文件，放到 GitLab 库: 

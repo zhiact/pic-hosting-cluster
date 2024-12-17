@@ -3,7 +3,7 @@
 set -e
 
 # 从文件读取配置，为防止用户没有去掉尖括号，故用 sed 处理强制去掉所有的 < > 符号
-CONFIG=$(sed "s/[<>]//g" config.yml)
+CONFIG=$(sed 's/[<>]//g; s/:/: /g; s/:[[:space:]]\+/: /g' config.yml)
 GITHUB_PAT=$(awk '$1 ~ "^github_pat" {sub(/[^:]*:[[:space:]]*/, ""); print}'  <<< "$CONFIG")
 GITLAB_USERNAME=$(awk '$1 ~ "^gitlab_username" {sub(/[^:]*:[[:space:]]*/, ""); print}'  <<< "$CONFIG")
 GITHUB_REPO_PREFIX=$(awk '$1 ~ "^github_repo_prefix" {sub(/[^:]*:[[:space:]]*/, ""); print}'  <<< "$CONFIG")

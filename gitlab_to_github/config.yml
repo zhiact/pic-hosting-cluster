@@ -1,0 +1,8 @@
+# 以下所有的 KV 填写格式要求: 1. 修改的地方需要把尖括号一并去掉；2. : 冒号后面有空格
+## GitHub 部分
+github_pat: <改为 GitHub PAT获取到的 Token>
+github_repo_prefix: <改为 GitHub 仓库名前缀，比如 repo1,repo2,repo3,repo4, 就只填 repo>
+
+## GitLab 部分
+gitlab_repo_prefix: <改为 GitLab 仓库名前缀，比如 repo1,repo2,repo3,repo4, 就只填 repo>
+gitlab_username: <改为 GitLab 用户名>
