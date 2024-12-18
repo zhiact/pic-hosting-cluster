@@ -1,15 +1,15 @@
 # 分布式存储集群
 
-## 更新日期 2024-12-17
+## 更新日期 2024-12-18
 
 ## 各方案的独立分仓库
 | 方案 | worker 文件 | 同步仓库模版 | 视频教程 |
 | --- |--- |--- |--- |
 | GitHub only | [worker.js](https://raw.githubusercontent.com/fscarmen2/pic-hosting-cluster/refs/heads/main/cloudflare_worker/github_only.js) | [博文 7.2 Github 设置](https://www.fscarmen.com/2024/10/blog-post.html) | https://youtu.be/eRqIpeeo9SA |
 | GitLab only |[worker.js](https://raw.githubusercontent.com/fscarmen2/pic-hosting-cluster/refs/heads/main/cloudflare_worker/gitlab_only.js) | 使用 GitLab 平台自带的镜像功能 | https://youtu.be/tjiI3I3MkaQ |
-| GitHub + GitLab | [worker.js](https://raw.githubusercontent.com/fscarmen2/files-hosting-template-1/refs/heads/main/worker.js) | [点击使用模板库，注意需要手动改为私有仓库](https://github.com/new?template_name=files-hosting-template-1&template_owner=fscarmen2) | https://youtu.be/SGex7xJ9YdQ |
-| R2 + GitHub + GitLab | [worker.js](https://raw.githubusercontent.com/fscarmen2/files-hosting-template-2/refs/heads/main/worker.js) | [点击使用模板库，注意需要手动改为私有仓库](https://github.com/new?template_name=files-hosting-template-2&template_owner=fscarmen2) | https://youtu.be/5i-86oBLWP8 |
-| B2 + R2 + GitHub + GitLab | [worker.js](https://raw.githubusercontent.com/fscarmen2/files-hosting-template-3/refs/heads/main/worker.js) | [点击使用模板库，注意需要手动改为私有仓库](https://github.com/new?template_name=files-hosting-template-3&template_owner=fscarmen2) | https://youtu.be/4X1FjLCAckI |
+| GitHub + GitLab | [worker.js](https://raw.githubusercontent.com/fscarmen2/pic-hosting-cluster/refs/heads/main/cloudflare_worker/github_gitlab_r2_b2.js) | [点击使用模板库，注意需要手动改为私有仓库](https://github.com/new?template_name=files-hosting-template-1&template_owner=fscarmen2) | https://youtu.be/SGex7xJ9YdQ |
+| R2 + GitHub + GitLab | [worker.js](https://raw.githubusercontent.com/fscarmen2/pic-hosting-cluster/refs/heads/main/cloudflare_worker/github_gitlab_r2_b2.js) | [点击使用模板库，注意需要手动改为私有仓库](https://github.com/new?template_name=files-hosting-template-2&template_owner=fscarmen2) | https://youtu.be/5i-86oBLWP8 |
+| B2 + R2 + GitHub + GitLab | [worker.js](https://raw.githubusercontent.com/fscarmen2/pic-hosting-cluster/refs/heads/main/cloudflare_worker/github_gitlab_r2_b2.js) | [点击使用模板库，注意需要手动改为私有仓库](https://github.com/new?template_name=files-hosting-template-2&template_owner=fscarmen2) | https://youtu.be/4X1FjLCAckI |
 
 ## GitHub --→ GitLab 目录下1个文件，放到 GitHub 库: 
 - **AC 脚本**: `./github/workflows/cluster_sync.yml`
@@ -19,11 +19,11 @@
 - **同步脚本**: `sync_to_github.sh`
 - **CI/CD 脚本**: `.gitlab-ci.yml`
 
-## R2 --→ GitHub 目录下2个文件，放到 GitHub 库: 
+## R2 --→ GitHub 目录下1个文件，放到 GitHub 库: 
 - **AC 脚本**: `./github/workflows/r2_to_github.yml`
 - **设置3个secrets**: `ACCOUNT_ID`, `WORKER_NAME` 和 `API_TOKEN`
 
-## S2 (R2+B2) --→ GitHub 目录下2个文件，放到 GitHub 库: 
+## S3 (R2+B2) --→ GitHub 目录下1个文件，放到 GitHub 库: 
 - **AC 脚本**: `./github/workflows/s3_to_github.yml`
 - **设置3个secrets**: `ACCOUNT_ID`, `WORKER_NAME` 和 `API_TOKEN`
 
@@ -41,12 +41,12 @@
 
 ![image](https://github.com/user-attachments/assets/25b8d0fa-8302-4cb9-a6db-83e449e9664c)
 
-## Cloudflare worker 目录下5个文件，复制代码到 worker 处：
+## Cloudflare worker 目录下3个文件，复制代码到 worker 处：
 - **只使用 GitHub**: `github_only.js`
 - **只使用 GitLab**: `gitlab_only.js`
-- **同时使用 GitHub 和 GitLab**: `github_gitlab.js`
-- **同时使用 GitHub, GitLab 和 R2**: `github_gitlab_r2.js`
-- **同时使用 GitHub, GitLab，R2 和 B2**: `github_gitlab_s3.js`
+- **同时使用 GitHub 和 GitLab**: `github_gitlab_r2_b2.js`
+- **同时使用 GitHub, GitLab 和 R2**: `github_gitlab_r2_b2.js`
+- **同时使用 GitHub, GitLab，R2 和 B2**: `github_gitlab_r2_b2.js`
 
 ## 检测节点状态 `https://<自定义域名>/<GitHub PAT>`
 
