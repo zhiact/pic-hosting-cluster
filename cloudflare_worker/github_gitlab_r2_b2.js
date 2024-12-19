@@ -238,6 +238,19 @@ async function getGitHubUsername(pat) {
   }
 }
 
+// 修改文件路径处理函数
+function getFilePath(basePath, requestPath) {
+  // 移除开头的斜杠
+  const cleanRequestPath = requestPath.replace(/^\//, '');
+  
+  // 如果没有设置 basePath，直接返回请求路径
+  if (!basePath) return cleanRequestPath;
+  
+  // 组合基础路径和请求路径
+  return `${basePath}/${cleanRequestPath}`;
+}
+
+
 // 检查 GitHub 仓库
 async function checkGitHubRepo(owner, repo, pat) {
   const repoUrl = `https://api.github.com/repos/${owner}/${repo}`;
@@ -434,9 +447,14 @@ export default {
     const from = url.searchParams.get('from')?.toLowerCase();
     const validConfigs = hasValidConfig();
 
+    // 获取完整的请求路径
+    const requestPath = decodeURIComponent(url.pathname);
+    const FILE = requestPath.split('/').pop();
+    const subPath = requestPath.substring(1, requestPath.lastIndexOf('/'));
+    const fullPath = DIR ? `${DIR}/${subPath}` : subPath;
+
     // 直接使用 GITLAB_CONFIGS 中的 name 作为 GitHub 仓库名
     const githubRepos = GITLAB_CONFIGS.map(config => config.name);
-    const FILE = url.pathname.split('/').pop();
 
     // 只在没有 from 参数时才检查和使用缓存
     let cacheResponse;
@@ -555,7 +573,7 @@ export default {
 
       if (validConfigs.r2) {
         const r2Requests = await Promise.all(R2_CONFIGS.map(async (r2Config) => {
-          const r2Path = `${r2Config.bucket}/${DIR}/${FILE}`;
+          const r2Path = `${r2Config.bucket}/${fullPath}/${FILE}`;
           const signedRequest = await getSignedUrl(r2Config, 'GET', r2Path);
           return {
             url: signedRequest.url,
@@ -569,7 +587,7 @@ export default {
 
       if (validConfigs.b2) {
         const b2Requests = await Promise.all(B2_CONFIGS.map(async (b2Config) => {
-          const b2Path = `${b2Config.bucket}/${DIR}/${FILE}`;
+          const b2Path = `${b2Config.bucket}/${fullPath}/${FILE}`;
           const signedRequest = await getSignedUrl(b2Config, 'GET', b2Path);
           return {
             url: signedRequest.url,
@@ -588,7 +606,7 @@ export default {
     if (from === 'where') {
       if (validConfigs.github) {
         const githubRequests = githubRepos.map(repo => ({
-          url: `https://api.github.com/repos/${GITHUB_USERNAME}/${repo}/contents/${DIR}/${FILE}`,
+          url: `https://api.github.com/repos/${GITHUB_USERNAME}/${repo}/contents/${fullPath}/${FILE}`,
           headers: {
             'Authorization': `token ${GITHUB_PAT}`,
             'Accept': 'application/vnd.github.v3+json',
@@ -610,7 +628,7 @@ export default {
 
       if (validConfigs.gitlab) {
         const gitlabRequests = GITLAB_CONFIGS.map(config => ({
-          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}?ref=main`,
+          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${fullPath}/${FILE}`)}?ref=main`,
           headers: {
             'PRIVATE-TOKEN': config.token
           },
@@ -647,7 +665,7 @@ export default {
       // 获取文件内容模式
       if (from === 'github' && validConfigs.github) {
         requests = githubRepos.map(repo => ({
-          url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${repo}/main/${DIR}/${FILE}`,
+          url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${repo}/main/${fullPath}/${FILE}`,
           headers: {
             'Authorization': `token ${GITHUB_PAT}`,
             'User-Agent': 'Cloudflare Worker'
@@ -657,7 +675,7 @@ export default {
         }));
       } else if (from === 'gitlab' && validConfigs.gitlab) {
         requests = GITLAB_CONFIGS.map(config => ({
-          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}/raw?ref=main`,
+          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${fullPath}/${FILE}`)}/raw?ref=main`,
           headers: {
             'PRIVATE-TOKEN': config.token
           },
@@ -670,7 +688,7 @@ export default {
       } else if (!from) {
         if (validConfigs.github) {
           const githubRequests = githubRepos.map(repo => ({
-            url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${repo}/main/${DIR}/${FILE}`,
+            url: `https://raw.githubusercontent.com/${GITHUB_USERNAME}/${repo}/main/${fullPath}/${FILE}`,
             headers: {
               'Authorization': `token ${GITHUB_PAT}`,
               'User-Agent': 'Cloudflare Worker'
@@ -683,7 +701,7 @@ export default {
 
         if (validConfigs.gitlab) {
           const gitlabRequests = GITLAB_CONFIGS.map(config => ({
-            url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${DIR}/${FILE}`)}/raw?ref=main`,
+            url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${fullPath}/${FILE}`)}/raw?ref=main`,
             headers: {
               'PRIVATE-TOKEN': config.token
             },
