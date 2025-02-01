@@ -65,34 +65,34 @@ const DELETE = 'true'  // 可选 [true (默认) | false]，已复制到 GitHub �
 // 检查配置是否有效
 function hasValidConfig() {
   // 检查 GitHub 配置
-  const hasGithub = GITHUB_PAT && GITHUB_USERNAME && GITLAB_CONFIGS && 
-                    GITLAB_CONFIGS.length > 0 && 
+  const hasGithub = GITHUB_PAT && GITHUB_USERNAME && GITLAB_CONFIGS &&
+                    GITLAB_CONFIGS.length > 0 &&
                     GITLAB_CONFIGS.some(config => config.name && config.id && config.token);
 
   // 检查 GitLab 配置
-  const hasGitlab = GITLAB_CONFIGS && 
-                    GITLAB_CONFIGS.length > 0 && 
+  const hasGitlab = GITLAB_CONFIGS &&
+                    GITLAB_CONFIGS.length > 0 &&
                     GITLAB_CONFIGS.some(config => config.name && config.id && config.token);
 
   // 检查 R2 配置
-  const hasR2 = R2_CONFIGS && 
-                R2_CONFIGS.length > 0 && 
-                R2_CONFIGS.some(config => 
-                  config.name && 
-                  config.accountId && 
-                  config.accessKeyId && 
-                  config.secretAccessKey && 
+  const hasR2 = R2_CONFIGS &&
+                R2_CONFIGS.length > 0 &&
+                R2_CONFIGS.some(config =>
+                  config.name &&
+                  config.accountId &&
+                  config.accessKeyId &&
+                  config.secretAccessKey &&
                   config.bucket
                 );
 
   // 检查 B2 配置
-  const hasB2 = B2_CONFIGS && 
-                B2_CONFIGS.length > 0 && 
-                B2_CONFIGS.some(config => 
-                  config.name && 
-                  config.endPoint && 
-                  config.keyId && 
-                  config.applicationKey && 
+  const hasB2 = B2_CONFIGS &&
+                B2_CONFIGS.length > 0 &&
+                B2_CONFIGS.some(config =>
+                  config.name &&
+                  config.endPoint &&
+                  config.keyId &&
+                  config.applicationKey &&
                   config.bucket
                 );
 
@@ -107,31 +107,40 @@ function hasValidConfig() {
 // AWS SDK 签名相关函数开始 =================================
 
 // 获取签名URL
-async function getSignedUrl(config, method, path) {
-  const region = 'auto';
+async function getSignedUrl(config, method, path, queryParams = {}) {
+  const region = config.endPoint ? config.endPoint.split('.')[1] : 'auto';
   const service = 's3';
-
-  // 根据配置类型确定 host 和认证信息
-  const host = config.endPoint
-    ? config.endPoint  // B2 配置使用 endPoint
-    : `${config.accountId}.r2.cloudflarestorage.com`;  // R2 配置使用默认格式
-
-  // 根据配置类型确定认证信息
+  const host = config.endPoint || `${config.accountId}.r2.cloudflarestorage.com`;
   const accessKeyId = config.endPoint ? config.keyId : config.accessKeyId;
   const secretKey = config.endPoint ? config.applicationKey : config.secretAccessKey;
-
   const datetime = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '');
   const date = datetime.substr(0, 8);
 
+  // 确保路径正确编码，但保留斜杠
+  const encodedPath = path.split('/')
+    .map(segment => encodeURIComponent(segment))
+    .join('/');
+
+  // 构建规范请求
+  const canonicalHeaders = `host:${host}\nx-amz-content-sha256:UNSIGNED-PAYLOAD\nx-amz-date:${datetime}\n`;
+  const signedHeaders = 'host;x-amz-content-sha256;x-amz-date';
+
+  // 按字母顺序排序查询参数
+  const sortedParams = Object.keys(queryParams).sort().reduce((acc, key) => {
+    acc[key] = queryParams[key];
+    return acc;
+  }, {});
+
+  const canonicalQueryString = Object.entries(sortedParams)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join('&');
+
   const canonicalRequest = [
     method,
-    '/' + path,
-    '',
-    `host:${host}`,
-    'x-amz-content-sha256:UNSIGNED-PAYLOAD',
-    `x-amz-date:${datetime}`,
-    '',
-    'host;x-amz-content-sha256;x-amz-date',
+    '/' + encodedPath,
+    canonicalQueryString,
+    canonicalHeaders,
+    signedHeaders,
     'UNSIGNED-PAYLOAD'
   ].join('\n');
 
@@ -152,12 +161,14 @@ async function getSignedUrl(config, method, path) {
 
   const authorization = [
     `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${date}/${region}/${service}/aws4_request`,
-    `SignedHeaders=host;x-amz-content-sha256;x-amz-date`,
+    `SignedHeaders=${signedHeaders}`,
     `Signature=${signature}`
   ].join(', ');
 
+  const url = `https://${host}/${encodedPath}${canonicalQueryString ? '?' + canonicalQueryString : ''}`;
+
   return {
-    url: `https://${host}/${path}`,
+    url,
     headers: {
       'Authorization': authorization,
       'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
@@ -242,19 +253,17 @@ async function getGitHubUsername(pat) {
 function getFilePath(basePath, requestPath) {
   // 移除开头的斜杠
   const cleanRequestPath = requestPath.replace(/^\//, '');
-  
+
   // 如果没有设置 basePath，直接返回请求路径
   if (!basePath) return cleanRequestPath;
-  
+
   // 组合基础路径和请求路径
   return `${basePath}/${cleanRequestPath}`;
 }
 
-
 // 检查 GitHub 仓库
 async function checkGitHubRepo(owner, repo, pat) {
   const repoUrl = `https://api.github.com/repos/${owner}/${repo}`;
-  const contentsUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${DIR}`;
 
   const headers = {
     'Authorization': `token ${pat}`,
@@ -263,39 +272,43 @@ async function checkGitHubRepo(owner, repo, pat) {
   };
 
   try {
-    // 并发请求获取仓库信息和目录内容
-    const [repoResponse, contentsResponse] = await Promise.all([
-      fetch(repoUrl, { headers }),
-      fetch(contentsUrl, { headers })
-    ]);
-
+    // 获取仓库信息，确定默认分支
+    const repoResponse = await fetch(repoUrl, { headers });
     const repoData = await repoResponse.json();
 
-    if (repoResponse.status !== 200) {
+    if (repoResponse.status!== 200) {
       throw new Error(`Repository error: ${repoData.message}`);
     }
 
-    if (contentsResponse.status !== 200) {
-      return [`working (${repoData.private ? 'private' : 'public'})`, 0, 0];
+    const defaultBranch = repoData.default_branch;
+    const contentsUrl = `https://api.github.com/repos/${owner}/${repo}/git/trees/${defaultBranch}?recursive=1`;
+
+    // 获取文件树信息
+    const contentsResponse = await fetch(contentsUrl, { headers });
+    if (contentsResponse.status!== 200) {
+      const contentsErrorData = await contentsResponse.json();
+      throw new Error(`Contents error: ${contentsErrorData.message}`);
     }
 
     const contentsData = await contentsResponse.json();
 
-    // 计算文件数量和总大小
-    const fileStats = contentsData.reduce((acc, item) => {
-      if (item.type === 'file') {
-        return {
-          count: acc.count + 1,
-          size: acc.size + (item.size || 0)
-        };
+    let fileCount = 0;
+    let totalSize = 0;
+
+    if (contentsData.tree) {
+      for (const item of contentsData.tree) {
+        // 检查是否是文件
+        if (item.type === 'blob' && (DIR === '' || item.path.startsWith(DIR + '/'))) {
+          fileCount++;
+          totalSize += item.size || 0;
+        }
       }
-      return acc;
-    }, { count: 0, size: 0 });
+    }
 
     return [
       `working (${repoData.private ? 'private' : 'public'})`,
-      fileStats.count,
-      fileStats.size
+      fileCount,
+      totalSize
     ];
 
   } catch (error) {
@@ -307,14 +320,14 @@ async function checkGitHubRepo(owner, repo, pat) {
 // 检查 GitLab 项目
 async function checkGitLabProject(projectId, pat) {
   const projectUrl = `https://gitlab.com/api/v4/projects/${projectId}`;
-  const filesUrl = `https://gitlab.com/api/v4/projects/${projectId}/repository/tree?ref=main&path=${DIR}&recursive=true&per_page=10000`;
+  const treeUrl = `https://gitlab.com/api/v4/projects/${projectId}/repository/tree?recursive=true&per_page=100&path=${DIR}`;
 
   try {
-    const [projectResponse, filesResponse] = await Promise.all([
+    const [projectResponse, treeResponse] = await Promise.all([
       fetch(projectUrl, {
         headers: { 'PRIVATE-TOKEN': pat }
       }),
-      fetch(filesUrl, {
+      fetch(treeUrl, {
         headers: { 'PRIVATE-TOKEN': pat }
       })
     ]);
@@ -323,9 +336,10 @@ async function checkGitLabProject(projectId, pat) {
       const projectData = await projectResponse.json();
       let fileCount = 0;
 
-      if (filesResponse.status === 200) {
-        const filesData = await filesResponse.json();
-        fileCount = filesData.filter(item => item.type === 'blob').length;
+      if (treeResponse.status === 200) {
+        const treeData = await treeResponse.json();
+        // 只计算文件，不计算目录
+        fileCount = treeData.filter(item => item.type === 'blob').length;
       }
 
       return [
@@ -347,11 +361,17 @@ async function checkGitLabProject(projectId, pat) {
 // 检查 R2 存储
 async function checkR2Storage(r2Config) {
   try {
-    const listPath = `${r2Config.bucket}`;
-    const signedRequest = await getSignedUrl(r2Config, 'GET', listPath);
+    // 列出所有文件
+    const listRequest = await getSignedUrl(r2Config, 'GET', r2Config.bucket, {
+      'list-type': '2',
+      'prefix': DIR ? `${DIR}/` : ''  // 添加目录前缀筛选
+    });
 
-    const response = await fetch(signedRequest.url, {
-      headers: signedRequest.headers
+    const response = await fetch(listRequest.url, {
+      headers: {
+        ...listRequest.headers,
+        'Host': `${r2Config.accountId}.r2.cloudflarestorage.com`
+      }
     });
 
     let fileCount = 0;
@@ -359,23 +379,27 @@ async function checkR2Storage(r2Config) {
 
     if (response.ok) {
       const data = await response.text();
-      const keys = data.match(/<Key>([^<]+)<\/Key>/g) || [];
-      const sizes = data.match(/<Size>(\d+)<\/Size>/g) || [];
 
-      keys.forEach((key, index) => {
-        const filePath = key.replace(/<Key>|<\/Key>/g, '');
-        if (filePath.startsWith(DIR + '/')) {
-          fileCount++;
-          const size = parseInt(sizes[index]?.replace(/<Size>|<\/Size>/g, '') || String(0), 10);
-          totalSize += size;
+      // 使用正则表达式匹配所有文件信息
+      const contents = data.match(/<Contents>[\s\S]*?<\/Contents>/g) || [];
+
+      for (const content of contents) {
+        const keyMatch = content.match(/<Key>([^<]+)<\/Key>/);
+        const sizeMatch = content.match(/<Size>(\d+)<\/Size>/);
+
+        if (keyMatch && sizeMatch) {
+          const key = keyMatch[1];
+          // 只计算文件，不计算目录
+          if (!key.endsWith('/')) {
+            fileCount++;
+            totalSize += parseInt(sizeMatch[1]);
+          }
         }
-      });
+      }
     }
 
-    const status = response.ok ? 'working' : 'error';
-
     return [
-      status,
+      'working',
       r2Config.name,
       r2Config.bucket,
       fileCount,
@@ -390,11 +414,16 @@ async function checkR2Storage(r2Config) {
 // 检查 B2 存储
 async function checkB2Storage(b2Config) {
   try {
-    const listPath = `${b2Config.bucket}`;
-    const signedRequest = await getSignedUrl(b2Config, 'GET', listPath);
+    // 构建列出文件的请求，移除 delimiter 参数以获取所有子目录
+    const signedRequest = await getSignedUrl(b2Config, 'GET', b2Config.bucket, {
+      'prefix': DIR ? `${DIR}/` : ''
+    });
 
     const response = await fetch(signedRequest.url, {
-      headers: signedRequest.headers
+      headers: {
+        ...signedRequest.headers,
+        'Host': b2Config.endPoint
+      }
     });
 
     let fileCount = 0;
@@ -402,31 +431,296 @@ async function checkB2Storage(b2Config) {
 
     if (response.ok) {
       const data = await response.text();
-      const keys = data.match(/<Key>([^<]+)<\/Key>/g) || [];
-      const sizes = data.match(/<Size>(\d+)<\/Size>/g) || [];
+      // 使用正则表达式匹配所有文件信息
+      const keyRegex = /<Key>([^<]+)<\/Key>/g;
+      const sizeRegex = /<Size>(\d+)<\/Size>/g;
 
-      keys.forEach((key, index) => {
-        const filePath = key.replace(/<Key>|<\/Key>/g, '');
-        if (filePath.startsWith(DIR + '/')) {
+      let keyMatch;
+      while ((keyMatch = keyRegex.exec(data)) !== null) {
+        const key = keyMatch[1];
+        // 只计算文件，不计算目录，并确保文件在指定目录下
+        if (!key.endsWith('/') && (!DIR || key.startsWith(DIR + '/'))) {
           fileCount++;
-          const size = parseInt(sizes[index]?.replace(/<Size>|<\/Size>/g, '') || String(0), 10);
-          totalSize += size;
+          // 获取对应的文件大小
+          const sizeMatch = /<Size>(\d+)<\/Size>/g.exec(data.slice(keyMatch.index));
+          if (sizeMatch) {
+            totalSize += parseInt(sizeMatch[1]);
+          }
         }
-      });
+      }
+
+      return [
+        'working',
+        b2Config.name,
+        b2Config.bucket,
+        fileCount,
+        formatSize(totalSize)
+      ];
+    } else {
+      throw new Error(`Failed to list bucket: ${response.status} ${response.statusText}`);
     }
 
-    const status = (response.status === 404 || response.status === 403 || response.ok) ? 'working' : 'error';
-
-    return [
-      status,
-      b2Config.name,
-      b2Config.bucket,
-      fileCount,
-      formatSize(totalSize)
-    ];
   } catch (error) {
     console.error('B2 Storage error:', error);
-    return ['error', b2Config.name, 'connection failed', 0, '0 B'];
+    return ['error', b2Config.name, b2Config.bucket, 0, '0 B'];
+  }
+}
+
+// 删除 GitHub 仓库中的文件
+async function deleteGitHubFile(repo, filePath, pat) {
+  // 构建完整的文件路径，包含 DIR
+  const fullPath = DIR ? `${DIR}/${filePath.replace(/^\/+/, '')}` : filePath.replace(/^\/+/, '');
+  const url = `https://api.github.com/repos/${GITHUB_USERNAME}/${repo}/contents/${fullPath}`;
+
+  try {
+    // 先检查文件是否存在
+    const getResponse = await fetch(url, {
+      headers: {
+        'Authorization': `token ${pat}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Cloudflare Worker'
+      }
+    });
+
+    if (getResponse.status === 404) {
+      return '文件不存在';
+    }
+
+    if (!getResponse.ok) {
+      const errorData = await getResponse.json();
+      return `删除失败：(${errorData.message})`;
+    }
+
+    const fileData = await getResponse.json();
+
+    // 执行删除操作
+    const deleteResponse = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'Authorization': `token ${pat}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'Cloudflare Worker'
+      },
+      body: JSON.stringify({
+        message: `Delete ${fullPath}`,
+        sha: fileData.sha
+      })
+    });
+
+    if (deleteResponse.ok) {
+      return '删除成功';
+    } else {
+      const errorData = await deleteResponse.json();
+      return `删除失败：(${errorData.message})`;
+    }
+  } catch (error) {
+    console.error('GitHub delete error:', error);
+    return `删除失败：(${error.message})`;
+  }
+}
+
+// 删除 GitLab 项目中的文件
+async function deleteGitLabFile(projectId, filePath, pat) {
+  // 构建完整的文件路径，包含 DIR
+  const fullPath = DIR ? `${DIR}/${filePath.replace(/^\/+/, '')}` : filePath.replace(/^\/+/, '');
+  const encodedPath = encodeURIComponent(fullPath);
+  const url = `https://gitlab.com/api/v4/projects/${projectId}/repository/files/${encodedPath}`;
+
+  try {
+    // 执行删除操作
+    const deleteResponse = await fetch(url, {
+      method: 'DELETE',
+      headers: {
+        'PRIVATE-TOKEN': pat,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        branch: 'main',
+        commit_message: 'Delete file: ' + fullPath
+      })
+    });
+
+    // 获取响应数据
+    const errorData = await deleteResponse.json().catch(() => ({}));
+
+    // 处理文件不存在的所有可能情况
+    if (deleteResponse.status === 404 ||
+      errorData.message === 'A file with this name doesn\'t exist' ||
+      errorData.message?.includes('file does not exist') ||
+      errorData.message?.includes('File not found')) {
+      return '文件不存在';
+    }
+
+    // 处理删除成功的情况
+    if (deleteResponse.ok ||
+      errorData.message?.includes('reference update') ||
+      errorData.message?.includes('reference does not point')) {
+      return '删除成功';
+    }
+
+    return `删除失败：(${errorData.message || '未知错误'})`;
+  } catch (error) {
+    console.error('GitLab delete error:', error);
+    if (error.message?.includes('file') && error.message?.includes('exist')) {
+      return '文件不存在';
+    }
+    return `删除失败：(${error.message})`;
+  }
+}
+
+// 删除 R2 存储中的文件
+async function deleteR2File(r2Config, filePath) {
+  // 构建完整的文件路径，包含 DIR
+  const fullPath = DIR ? `${DIR}/${filePath.replace(/^\/+/, '')}` : filePath.replace(/^\/+/, '');
+
+  try {
+    // 1. 首先列出所有文件
+    const listRequest = await getSignedUrl(r2Config, 'GET', r2Config.bucket, {
+      'list-type': '2',
+      'prefix': fullPath  // 使用精确的前缀匹配
+    });
+
+    const listResponse = await fetch(listRequest.url, {
+      headers: {
+        ...listRequest.headers,
+        'Host': `${r2Config.accountId}.r2.cloudflarestorage.com`
+      }
+    });
+
+    if (!listResponse.ok) {
+      throw new Error(`Failed to list objects: ${listResponse.statusText}`);
+    }
+
+    // 解析响应
+    const listData = await listResponse.text();
+    const contents = listData.match(/<Contents>[\s\S]*?<\/Contents>/g) || [];
+    let fileExists = false;
+
+    // 精确匹配文件路径
+    for (const content of contents) {
+      const keyMatch = content.match(/<Key>([^<]+)<\/Key>/);
+      if (keyMatch && keyMatch[1] === fullPath) {
+        fileExists = true;
+        break;
+      }
+    }
+
+    if (!fileExists) {
+      return '文件不存在';
+    }
+
+    // 2. 删除文件
+    const deleteRequest = await getSignedUrl(r2Config, 'DELETE', `${r2Config.bucket}/${fullPath}`);
+
+    const deleteResponse = await fetch(deleteRequest.url, {
+      method: 'DELETE',
+      headers: {
+        ...deleteRequest.headers,
+        'Host': `${r2Config.accountId}.r2.cloudflarestorage.com`
+      }
+    });
+
+    if (!deleteResponse.ok) {
+      const deleteResponseText = await deleteResponse.text();
+      throw new Error(`Failed to delete: ${deleteResponse.status} - ${deleteResponseText}`);
+    }
+
+    return '删除成功';
+  } catch (error) {
+    console.error('R2 delete error:', error);
+    return `删除失败：(${error.message})`;
+  }
+}
+
+// 删除 B2 存储中的文件
+async function deleteB2File(b2Config, filePath) {
+  // 构建完整的文件路径，包含 DIR
+  const fullPath = DIR ? `${DIR}/${filePath.replace(/^\/+/, '')}` : filePath.replace(/^\/+/, '');
+
+  try {
+    // 1. 首先列出所有文件
+    const listObjectsRequest = await getSignedUrl(b2Config, 'GET', b2Config.bucket, {
+      'list-type': '2',
+      'prefix': fullPath
+    });
+
+    const listResponse = await fetch(listObjectsRequest.url, {
+      headers: {
+        ...listObjectsRequest.headers,
+        'Host': b2Config.endPoint
+      }
+    });
+
+    if (!listResponse.ok) {
+      throw new Error(`Failed to list objects: ${listResponse.statusText}`);
+    }
+
+    // 解析 XML 响应
+    const listData = await listResponse.text();
+    const keyRegex = /<Key>([^<]+)<\/Key>/g;
+    const fileExists = Array.from(listData.matchAll(keyRegex))
+      .some(match => match[1] === fullPath);
+
+    if (!fileExists) {
+      return '文件不存在';
+    }
+
+    // 2. 获取文件的版本信息
+    const versionsRequest = await getSignedUrl(b2Config, 'GET', b2Config.bucket, {
+      'versions': '',
+      'prefix': fullPath,
+      'list-type': '2'
+    });
+
+    const versionsResponse = await fetch(versionsRequest.url, {
+      headers: {
+        ...versionsRequest.headers,
+        'Host': b2Config.endPoint,
+        'x-amz-date': versionsRequest.headers['x-amz-date'],
+        'Authorization': versionsRequest.headers['Authorization']
+      }
+    });
+
+    if (!versionsResponse.ok) {
+      const responseText = await versionsResponse.text();
+      console.error('Version listing response:', responseText);
+      throw new Error(`Failed to list versions: ${versionsResponse.status} - ${responseText}`);
+    }
+
+    const versionsData = await versionsResponse.text();
+
+    // 解析版本信息
+    const versionMatch = versionsData.match(/<Version>[\s\S]*?<VersionId>([^<]+)<\/VersionId>[\s\S]*?<\/Version>/);
+    if (!versionMatch) {
+      throw new Error('No version information found');
+    }
+
+    const versionId = versionMatch[1];
+
+    // 3. 删除指定版本的文件
+    const deleteRequest = await getSignedUrl(b2Config, 'DELETE', `${b2Config.bucket}/${fullPath}`, {
+      'versionId': versionId
+    });
+
+    const deleteResponse = await fetch(deleteRequest.url, {
+      method: 'DELETE',
+      headers: {
+        ...deleteRequest.headers,
+        'Host': b2Config.endPoint,
+        'x-amz-date': deleteRequest.headers['x-amz-date'],
+        'Authorization': deleteRequest.headers['Authorization']
+      }
+    });
+
+    if (!deleteResponse.ok) {
+      const deleteResponseText = await deleteResponse.text();
+      throw new Error(`Failed to delete: ${deleteResponse.status} - ${deleteResponseText}`);
+    }
+
+    return '删除成功';
+  } catch (error) {
+    console.error('B2 delete error:', error);
+    return `删除失败：(${error.message})`;
   }
 }
 
@@ -450,7 +744,9 @@ export default {
     // 获取完整的请求路径
     const requestPath = decodeURIComponent(url.pathname);
     const FILE = requestPath.split('/').pop();
-    const subPath = requestPath.substring(1, requestPath.lastIndexOf('/'));
+    // 获取子目录路径，移除开头和结尾的斜杠
+    const subPath = requestPath.substring(1, requestPath.lastIndexOf('/'))
+      .replace(/^\/+|\/+$/g, '');
     const fullPath = DIR ? `${DIR}/${subPath}` : subPath;
 
     // 直接使用 GITLAB_CONFIGS 中的 name 作为 GitHub 仓库名
@@ -536,6 +832,67 @@ export default {
       });
     }
 
+    // 添加删除路由
+    if (url.pathname === '/delete') {
+      const file = url.searchParams.get('file');
+      if (!file) {
+        return new Response('Missing "file" parameter', {
+          status: 400,
+          headers: { 'Content-Type': 'text/plain; charset=UTF-8', 'Access-Control-Allow-Origin': '*' }
+        });
+      }
+
+      const validConfigs = hasValidConfig();
+      let result = `Delete：${file}\n`;
+
+      // GitHub 状态
+      if (validConfigs.github) {
+        result += '\n=== GitHub Status ===\n';
+        const githubRepos = GITLAB_CONFIGS.map(config => config.name);
+        for (const repo of githubRepos) {
+          const status = await deleteGitHubFile(repo, file, GITHUB_PAT);
+          result += `GitHub: ${repo} - working (private) ${status}\n`;
+        }
+      }
+
+      // GitLab 状态
+      if (validConfigs.gitlab) {
+        result += '\n=== GitLab Status ===\n';
+        for (const config of GITLAB_CONFIGS) {
+          const status = await deleteGitLabFile(config.id, file, config.token);
+          const projectData = await fetch(`https://gitlab.com/api/v4/projects/${config.id}`, {
+            headers: { 'PRIVATE-TOKEN': config.token }
+          }).then(res => res.json());
+          result += `GitLab: Project ID ${config.id} - working (${projectData.visibility}) ${status}\n`;
+        }
+      }
+
+      // R2 存储状态
+      if (validConfigs.r2) {
+        result += '\n=== R2 Storage Status ===\n';
+        for (const config of R2_CONFIGS) {
+          const status = await deleteR2File(config, file);
+          result += `R2 Storage: ${config.name} - working ${status}\n`;
+        }
+      }
+
+      // B2 存储状态
+      if (validConfigs.b2) {
+        result += '\n=== B2 Storage Status ===\n';
+        for (const config of B2_CONFIGS) {
+          const status = await deleteB2File(config, file);
+          result += `B2 Storage: ${config.name} - working ${status}\n`;
+        }
+      }
+
+      return new Response(result, {
+        headers: {
+          'Content-Type': 'text/plain; charset=UTF-8',
+          'Access-Control-Allow-Origin': '*'
+        }
+      });
+    }
+
     const startTime = Date.now();
     let requests = [];
 
@@ -568,16 +925,27 @@ export default {
     }
 
     // 生成存储请求
-    const generateStorageRequests = async () => {
+    async function generateStorageRequests() {
       let requests = [];
+
+      // 处理请求路径，保留子目录结构
+      const getStoragePath = (filePath) => {
+        return filePath.replace(/^\/+/, '').replace(/\/+/g, '/');
+      };
 
       if (validConfigs.r2) {
         const r2Requests = await Promise.all(R2_CONFIGS.map(async (r2Config) => {
-          const r2Path = `${r2Config.bucket}/${fullPath}/${FILE}`;
+          // 构建包含子目录的完整路径
+          const storagePath = getStoragePath(`${subPath}/${FILE}`);
+          const r2Path = `${r2Config.bucket}/${DIR}/${storagePath}`;
+
           const signedRequest = await getSignedUrl(r2Config, 'GET', r2Path);
           return {
             url: signedRequest.url,
-            headers: signedRequest.headers,
+            headers: {
+              ...signedRequest.headers,
+              'Accept': '*/*'
+            },
             source: 'r2',
             repo: `${r2Config.name} (${r2Config.bucket})`
           };
@@ -587,11 +955,24 @@ export default {
 
       if (validConfigs.b2) {
         const b2Requests = await Promise.all(B2_CONFIGS.map(async (b2Config) => {
-          const b2Path = `${b2Config.bucket}/${fullPath}/${FILE}`;
-          const signedRequest = await getSignedUrl(b2Config, 'GET', b2Path);
+          // 构建完整路径，注意 B2 需要包含 bucket 名称
+          const storagePath = getStoragePath(`${subPath}/${FILE}`);
+          const b2Path = `${b2Config.bucket}/${DIR}/${storagePath}`;
+
+          const signedRequest = await getSignedUrl({
+            endPoint: b2Config.endPoint,
+            keyId: b2Config.keyId,
+            applicationKey: b2Config.applicationKey,
+            bucket: b2Config.bucket
+          }, 'GET', b2Path);
+
           return {
             url: signedRequest.url,
-            headers: signedRequest.headers,
+            headers: {
+              ...signedRequest.headers,
+              'Host': b2Config.endPoint,
+              'Accept': '*/*'
+            },
             source: 'b2',
             repo: `${b2Config.name} (${b2Config.bucket})`
           };
@@ -600,7 +981,7 @@ export default {
       }
 
       return requests;
-    };
+    }
 
     // 处理不同类型的请求
     if (from === 'where') {
@@ -628,7 +1009,7 @@ export default {
 
       if (validConfigs.gitlab) {
         const gitlabRequests = GITLAB_CONFIGS.map(config => ({
-          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${fullPath}/${FILE}`)}?ref=main`,
+          url: `https://gitlab.com/api/v4/projects/${config.id}/repository//${encodeURIComponent(`${fullPath}/${FILE}`)}?ref=main`,
           headers: {
             'PRIVATE-TOKEN': config.token
           },
@@ -675,7 +1056,7 @@ export default {
         }));
       } else if (from === 'gitlab' && validConfigs.gitlab) {
         requests = GITLAB_CONFIGS.map(config => ({
-          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${fullPath}/${FILE}`)}/raw?ref=main`,
+          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/${DIR}/${encodeURIComponent(`${fullPath}/${FILE}`)}/raw?ref=main`,
           headers: {
             'PRIVATE-TOKEN': config.token
           },
@@ -701,7 +1082,7 @@ export default {
 
         if (validConfigs.gitlab) {
           const gitlabRequests = GITLAB_CONFIGS.map(config => ({
-            url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(`${fullPath}/${FILE}`)}/raw?ref=main`,
+            url: `https://gitlab.com/api/v4/projects/${config.id}/repository/${DIR}/${encodeURIComponent(`${fullPath}/${FILE}`)}/raw?ref=main`,
             headers: {
               'PRIVATE-TOKEN': config.token
             },
