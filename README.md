@@ -48,7 +48,7 @@
 - **同时使用 GitHub, GitLab 和 R2**: `github_gitlab_r2_b2.js`
 - **同时使用 GitHub, GitLab，R2 和 B2**: `github_gitlab_r2_b2.js`
 
-## 检测节点状态 `https://<自定义域名>/<GitHub PAT>`
+## 检测节点状态 `https://<自定义域名>/<自定义密码>`
 
 <img width="670" alt="image" src="https://github.com/user-attachments/assets/7a518dfc-7c56-4c30-bd23-d2766f39a3a8">
 
@@ -66,14 +66,14 @@
 
 ## 从所有的平台删除指定文件
 
-- **支持同时在 GitHub / GitLab / R2 / B2 多级子目录下的文件** ``https://<自定义域名>/delete?file=<文件名>`
+- **支持同时在 GitHub / GitLab / R2 / B2 多级子目录下的文件** ``https://<自定义域名>/<自定义密码>/del?file=<文件名>`
 
 - **举例** 定义的节点目录为 files，而需要删除 `<节点>/files/a/b/test.jpg`
 
 ```
 # 以下两个路径都可以
-https://<自定义域名>/delete?file=a/b/test.jpg
-https://<自定义域名>/delete?file=/a/b/test.jpg
+https://<自定义域名>/<自定义密码>/delete?file=a/b/test.jpg
+https://<自定义域名>/<自定义密码>/del?file=/a/b/test.jpg
 ```
 
 ![image](https://github.com/user-attachments/assets/ccbd96df-f930-490b-a947-8df9dd9b8459)

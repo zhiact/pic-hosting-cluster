@@ -737,19 +737,64 @@ function formatSize(sizeInBytes) {
 
 export default {
   async fetch(request, env, ctx) {
+    // 获取请求 URL 对象
     const url = new URL(request.url);
+
+    // 从 URL 的查询参数中获取 'from' 参数并转换为小写
     const from = url.searchParams.get('from')?.toLowerCase();
+
+    // 检查是否有有效的配置，调用 `hasValidConfig()` 函数
     const validConfigs = hasValidConfig();
 
-    // 获取完整的请求路径
+    // 获取请求路径并解码（对 URL 编码进行解码）
     const requestPath = decodeURIComponent(url.pathname);
+
+    // 从路径中提取文件名（即路径的最后一部分）
     const FILE = requestPath.split('/').pop();
+
     // 获取子目录路径，移除开头和结尾的斜杠
-    const subPath = requestPath.substring(1, requestPath.lastIndexOf('/'))
-      .replace(/^\/+|\/+$/g, '');
+    const subPath = requestPath.substring(1, requestPath.lastIndexOf('/')).replace(/^\/+|\/+$/g, '');
+
+    // 如果 DIR 存在，拼接 DIR 和子目录路径；否则仅使用子目录路径
     const fullPath = DIR ? `${DIR}/${subPath}` : subPath;
 
-    // 直接使用 GITLAB_CONFIGS 中的 name 作为 GitHub 仓库名
+    // 检查请求路径是否匹配删除请求（支持 'delete' 或 'del'）
+    const isDeleteRequest = requestPath.match(new RegExp(`^/${CHECK_PASSWORD}/(delete|del)$`));
+
+    // 检查是否是未授权的删除请求
+    const isUnauthorizedDelete = requestPath.match(/^\/(delete|del)$/);
+    if (isUnauthorizedDelete) {
+      const file = url.searchParams.get('file');
+      if (!file) {
+        return new Response(
+          '需要指定要删除的文件。\n' +
+          '正确的删除格式为: /<自定义密码>/del?file=文件路径\n' +
+          '例如: /<自定义密码>/del?file=example.png',
+          {
+            status: 403,
+            headers: {
+              'Content-Type': 'text/plain; charset=UTF-8',
+              'Access-Control-Allow-Origin': '*'
+            }
+          }
+        );
+      }
+
+      return new Response(
+        '需要密码验证才能删除文件。\n' +
+        '要删除文件 ' + file + ' 的正确格式为:\n' +
+        '/<自定义密码>/del?file=' + file,
+        {
+          status: 403,
+          headers: {
+            'Content-Type': 'text/plain; charset=UTF-8',
+            'Access-Control-Allow-Origin': '*'
+          }
+        }
+      );
+    }
+
+    // 从 GITLAB_CONFIGS 中获取每个配置的 name 作为 GitHub 仓库名
     const githubRepos = GITLAB_CONFIGS.map(config => config.name);
 
     // 只在没有 from 参数时才检查和使用缓存
@@ -826,14 +871,14 @@ export default {
 
       return new Response(result, {
         headers: {
-          'Content-Type': 'text/plain',
+          'Content-Type': 'text/plain; charset=UTF-8',
           'Access-Control-Allow-Origin': '*'
         }
       });
     }
 
     // 添加删除路由
-    if (url.pathname === '/delete') {
+    if (isDeleteRequest) {
       const file = url.searchParams.get('file');
       if (!file) {
         return new Response('Missing "file" parameter', {
@@ -842,7 +887,6 @@ export default {
         });
       }
 
-      const validConfigs = hasValidConfig();
       let result = `Delete：${file}\n`;
 
       // GitHub 状态
