@@ -749,6 +749,31 @@ export default {
     // 获取请求路径并解码（对 URL 编码进行解码）
     const requestPath = decodeURIComponent(url.pathname);
 
+    // 添加根路径项目介绍
+    if (requestPath === '/') {
+      return new Response(
+        '欢迎来到文件托管集群！(File Hosting Cluster)\n' +
+        '这是一个分布式存储集群项目，旨在提供高效的文件存储和管理服务。\n\n' +
+        '项目链接： https://github.com/fscarmen2/pic-hosting-cluster\n' +
+        '视频介绍： https://youtu.be/5i-86oBLWP8\n\n' +
+        '您可以使用以下操作：\n' +
+        '1. 从集群所有节点获取文件： /<文件名>\n' +
+        '2. 指定从 Github 获取文件： /<文件名>?from=github\n' +
+        '3. 指定从 Gitlab 获取文件： /<文件名>?from=gitlab\n' +
+        '4. 指定从 Cloudflare R2 获取文件： /<文件名>?from=r2\n' +
+        '5. 指定从 Backblaze B2 获取文件： /<文件名>?from=b2\n' +
+        '6. 查找文件信息： /<文件名>?from=where\n' +
+        '7. 查各节点状态： /<自定义密码>\n' +
+        '8. 删除文件： /<自定义密码>/del?file=<文件名>',
+        {
+          headers: {
+            'Content-Type': 'text/plain; charset=UTF-8',
+            'Access-Control-Allow-Origin': '*'
+          }
+        }
+      );
+    }
+
     // 从路径中提取文件名（即路径的最后一部分）
     const FILE = requestPath.split('/').pop();
 
@@ -1031,7 +1056,7 @@ export default {
     if (from === 'where') {
       if (validConfigs.github) {
         const githubRequests = githubRepos.map(repo => ({
-          url: `https://api.github.com/repos/${GITHUB_USERNAME}/${repo}/contents/${fullPath}/${FILE}`,
+          url: `https://api.github.com/repos/${GITHUB_USERNAME}/${repo}/contents/${getFilePath(DIR, `${subPath}/${FILE}`)}`,
           headers: {
             'Authorization': `token ${GITHUB_PAT}`,
             'Accept': 'application/vnd.github.v3+json',
@@ -1053,7 +1078,8 @@ export default {
 
       if (validConfigs.gitlab) {
         const gitlabRequests = GITLAB_CONFIGS.map(config => ({
-          url: `https://gitlab.com/api/v4/projects/${config.id}/repository//${encodeURIComponent(`${fullPath}/${FILE}`)}?ref=main`,
+          // GitLab where 查询 URL
+          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(getFilePath(DIR, `${subPath}/${FILE}`))}?ref=main`,
           headers: {
             'PRIVATE-TOKEN': config.token
           },
@@ -1062,9 +1088,8 @@ export default {
           processResponse: async (response) => {
             if (!response.ok) throw new Error('Not found');
             const data = await response.json();
-            const size = atob(data.content).length;
             return {
-              size: size,
+              size: data.size,
               exists: true
             };
           }
@@ -1100,7 +1125,8 @@ export default {
         }));
       } else if (from === 'gitlab' && validConfigs.gitlab) {
         requests = GITLAB_CONFIGS.map(config => ({
-          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/${DIR}/${encodeURIComponent(`${fullPath}/${FILE}`)}/raw?ref=main`,
+          // GitLab 文件获取 URL
+          url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(getFilePath(DIR, `${subPath}/${FILE}`))}/raw?ref=main`,
           headers: {
             'PRIVATE-TOKEN': config.token
           },
@@ -1126,7 +1152,8 @@ export default {
 
         if (validConfigs.gitlab) {
           const gitlabRequests = GITLAB_CONFIGS.map(config => ({
-            url: `https://gitlab.com/api/v4/projects/${config.id}/repository/${DIR}/${encodeURIComponent(`${fullPath}/${FILE}`)}/raw?ref=main`,
+            // GitLab URL 构建方式
+            url: `https://gitlab.com/api/v4/projects/${config.id}/repository/files/${encodeURIComponent(getFilePath(DIR, `${subPath}/${FILE}`))}/raw?ref=main`,
             headers: {
               'PRIVATE-TOKEN': config.token
             },
