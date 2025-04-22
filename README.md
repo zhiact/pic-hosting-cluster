@@ -1,6 +1,6 @@
 # 分布式存储集群
 
-## 更新日期 2025-01-31
+## 更新日期 2025-04-21
 
 ## 各方案的独立分仓库
 | 方案 | worker 文件 | 同步仓库模版 | 视频教程 |
@@ -77,3 +77,7 @@ https://<自定义域名>/<自定义密码>/del?file=/a/b/test.jpg
 ```
 
 ![image](https://github.com/user-attachments/assets/ccbd96df-f930-490b-a947-8df9dd9b8459)
+
+## Sponsors
+
+This project is generously sponsored by VTEXS.
