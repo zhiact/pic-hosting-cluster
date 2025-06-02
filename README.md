@@ -12,7 +12,7 @@
 | B2 + R2 + GitHub + GitLab | [worker.js](https://raw.githubusercontent.com/fscarmen2/pic-hosting-cluster/refs/heads/main/cloudflare_worker/github_gitlab_r2_b2.js) | [点击使用模板库，注意需要手动改为私有仓库](https://github.com/new?template_name=files-hosting-template-2&template_owner=fscarmen2) | https://youtu.be/4X1FjLCAckI |
 
 ## GitHub --→ GitLab 目录下1个文件，放到 GitHub 库: 
-- **AC 脚本**: `./github/workflows/cluster_sync.yml`
+- **AC 脚本**: `.github/workflows/cluster_sync.yml`
 
 ## GitLab --→ GitHub 目录下3个文件，放到 GitLab 库: 
 - **配置文件**: `config.yml`
@@ -20,11 +20,11 @@
 - **CI/CD 脚本**: `.gitlab-ci.yml`
 
 ## R2 --→ GitHub 目录下1个文件，放到 GitHub 库: 
-- **AC 脚本**: `./github/workflows/r2_to_github.yml`
+- **AC 脚本**: `.github/workflows/r2_to_github.yml`
 - **设置3个secrets**: `ACCOUNT_ID`, `WORKER_NAME` 和 `API_TOKEN`
 
 ## S3 (R2+B2) --→ GitHub 目录下1个文件，放到 GitHub 库: 
-- **AC 脚本**: `./github/workflows/s3_to_github.yml`
+- **AC 脚本**: `.github/workflows/s3_to_github.yml`
 - **设置3个secrets**: `ACCOUNT_ID`, `WORKER_NAME` 和 `API_TOKEN`
 
 ## ACCOUNT_ID,WORKER_NAME,API_TOKEN 获取方式
@@ -80,4 +80,8 @@ https://<自定义域名>/<自定义密码>/del?file=/a/b/test.jpg
 
 ## Sponsors
 
-This project is generously sponsored by VTEXS.
+This project is generously sponsored by [VTEXS](https://zmto.com/).
+
+This project is generously sponsored by [Digitalvirt](https://digitalvirt.com/).
+
+![image](https://digitalvirt.com/templates/BlueWhite/img/logo-dark.svg)
