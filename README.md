@@ -85,3 +85,9 @@ This project is generously sponsored by [VTEXS](https://zmto.com/).
 This project is generously sponsored by [Digitalvirt](https://digitalvirt.com/).
 
 ![image](https://digitalvirt.com/templates/BlueWhite/img/logo-dark.svg)
+
+[![Powered by DartNode](https://dartnode.com/branding/DN-Open-Source.png)](https://dartnode.com "Powered by DartNode - Free VPS for Open Source")
+
+![image](https://status.dartnode.com/upload/logo1.png)
+
+
