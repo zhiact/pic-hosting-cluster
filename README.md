@@ -80,14 +80,17 @@ https://<自定义域名>/<自定义密码>/del?file=/a/b/test.jpg
 
 ## Sponsors
 
-This project is generously sponsored by [VTEXS](https://zmto.com/).
+- This project is generously sponsored by [VTEXS](https://zmto.com/).
 
-This project is generously sponsored by [Digitalvirt](https://digitalvirt.com/).
+- This project is generously sponsored by [Digitalvirt](https://digitalvirt.com/).
 
 ![image](https://digitalvirt.com/templates/BlueWhite/img/logo-dark.svg)
 
-[![Powered by DartNode](https://dartnode.com/branding/DN-Open-Source.png)](https://dartnode.com "Powered by DartNode - Free VPS for Open Source")
+- I am honored that DARTNODE is offering a free server to sponsor my project.<br>
+DARTNODE's official Web Site : [https://dartnode.com](https://dartnode.com?aff=CraftyMouse750)
 
-![image](https://status.dartnode.com/upload/logo1.png)
+<a href="https://dartnode.com?aff=CraftyMouse750" target="_blank"><img src="https://status.dartnode.com/upload/logo1.png" width="100px"></a><br>
+
+[![Powered by DartNode](https://dartnode.com/branding/DN-Open-Source-sm.png)](https://dartnode.com "Powered by DartNode - Free VPS for Open Source")
 
 
