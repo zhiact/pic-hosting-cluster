@@ -1026,7 +1026,7 @@ export default {
         const b2Requests = await Promise.all(B2_CONFIGS.map(async (b2Config) => {
           // 构建完整路径，注意 B2 需要包含 bucket 名称
           const storagePath = getStoragePath(`${subPath}/${FILE}`);
-          const b2Path = `${b2Config.bucket}${DIR}/${storagePath}`;
+          const b2Path = DIR ? `${b2Config.bucket}/${DIR}/${storagePath}` : `${b2Config.bucket}/${storagePath}`;
 
           const signedRequest = await getSignedUrl({
             endPoint: b2Config.endPoint,
